@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import { motion } from 'framer-motion'
 import {
   Filter,
@@ -14,21 +14,29 @@ import {
 import { useAuth } from '../contexts/AuthContext'
 import { useChatListUpdates } from '../hooks/use-realtime-updates'
 
+// Componente de skeleton para loading
+const ChatSkeleton = () => (
+  <div className="flex items-center space-x-3 p-3 animate-pulse">
+    <div className="w-10 h-10 bg-gray-200 rounded-full"></div>
+    <div className="flex-1 space-y-2">
+      <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+      <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+    </div>
+  </div>
+)
+
 const ChatList = ({ selectedChat, onSelectChat }) => {
   const [chats, setChats] = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [filter, setFilter] = useState('all') // all, waiting, active, resolved
   const { apiRequest } = useAuth()
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false)
 
   // Removido dados mockados - usando apenas dados reais da API
 
-  useEffect(() => {
-    loadChats()
-  }, [])
-
-  // Função para atualizar chat em tempo real
-  const handleChatUpdate = (chatId, chatData) => {
+  // Função para atualizar chat em tempo real - OTIMIZADA
+  const handleChatUpdate = useCallback((chatId, chatData) => {
     console.log('🔄 Chat atualizado em tempo real:', chatId, chatData)
     
     setChats(prevChats => {
@@ -48,14 +56,16 @@ const ChatList = ({ selectedChat, onSelectChat }) => {
         return chat
       })
     })
-  }
+  }, [])
 
   // Usar hook de atualizações em tempo real para lista de chats
   useChatListUpdates(handleChatUpdate)
 
-  const loadChats = async () => {
+  // OTIMIZADO: loadChats com timeout e melhor tratamento de erro
+  const loadChats = useCallback(async () => {
     try {
       setLoading(true)
+      setError(null)
       console.log('🔍 Carregando chats...')
       
       const response = await apiRequest('/api/chats/')
@@ -81,7 +91,8 @@ const ChatList = ({ selectedChat, onSelectChat }) => {
       // Corrigir para sempre processar um array
       // W-API retorna em 'chats', não 'results'
       const chatsArray = Array.isArray(data.chats) ? data.chats : Array.isArray(data.results) ? data.results : Array.isArray(data) ? data : [];
-      // Transformação para garantir campos obrigatórios
+      
+      // Transformação para garantir campos obrigatórios - OTIMIZADA
       const transformedChats = chatsArray.map(chat => ({
         ...chat,
         ultima_mensagem: chat.ultima_mensagem || {
@@ -98,133 +109,160 @@ const ChatList = ({ selectedChat, onSelectChat }) => {
         group_name: chat.group_name || null,
         is_group: chat.is_group || false,
         chat_name: chat.contact_name || chat.chat_name || chat.sender_name || chat.cliente_nome || `Chat ${chat.id}` // Para garantir compatibilidade
-      }));
-      setChats(transformedChats);
-      setLoading(false);
+      }))
+      
+      console.log('✅ Chats carregados:', transformedChats.length)
+      setChats(transformedChats)
+      
     } catch (error) {
       console.error('❌ Erro ao carregar chats:', error)
+      setError(error.message)
+      // Em caso de erro, mostrar lista vazia mas não quebrar a aplicação
       setChats([])
+    } finally {
       setLoading(false)
-      window.alert('Erro ao carregar chats: ' + error.message)
     }
-  }
+  }, [apiRequest])
 
-  // Função para buscar a foto de perfil de um contato
-  // REMOVIDO: fetchProfilePicture
-
-  // Carregar fotos de perfil após carregar os chats
   useEffect(() => {
-    if (!chats.length) return;
-    // Não é mais necessário buscar profile_picture individualmente,
-    // pois já vem no objeto do chat retornado pela API.
-    setChats(chats);
-    // eslint-disable-next-line
-  }, [loading]);
+    loadChats()
+  }, [loadChats])
 
-  const filteredChats = chats.filter(chat => {
-    const matchesFilter = filter === 'all' || 
-                         (filter === 'waiting' && chat.atribuicao_atual?.status === 'aguardando') ||
-                         (filter === 'active' && chat.atribuicao_atual?.status === 'em_andamento') ||
-                         (filter === 'resolved' && chat.atribuicao_atual?.status === 'resolvido')
+  // OTIMIZADO: Filtrar chats com useMemo
+  const filteredChats = useMemo(() => {
+    if (!chats.length) return []
     
-    return matchesFilter
-  })
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'pending':
-        return 'bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400';
+    switch (filter) {
+      case 'waiting':
+        return chats.filter(chat => chat.status === 'pending')
       case 'active':
-        return 'bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400';
-      case 'closed':
-        return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
+        return chats.filter(chat => chat.status === 'active')
+      case 'resolved':
+        return chats.filter(chat => chat.status === 'closed')
       default:
-        return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400';
+        return chats
     }
-  }
+  }, [chats, filter])
 
-  const getPriorityColor = (prioridade) => {
+  // OTIMIZADO: Ordenar chats com useMemo
+  const sortedChats = useMemo(() => {
+    return [...filteredChats].sort((a, b) => {
+      const dateA = new Date(a.last_message_at || a.data_inicio || 0)
+      const dateB = new Date(b.last_message_at || b.data_inicio || 0)
+      return dateB - dateA
+    })
+  }, [filteredChats])
+
+  // Funções utilitárias - OTIMIZADAS
+  const getStatusColor = useCallback((status) => {
+    switch (status) {
+      case 'active': return 'bg-green-500'
+      case 'pending': return 'bg-yellow-500'
+      case 'closed': return 'bg-gray-500'
+      default: return 'bg-gray-400'
+    }
+  }, [])
+
+  const getPriorityColor = useCallback((prioridade) => {
     switch (prioridade) {
-      case 'urgente':
-        return 'border-l-red-500'
-      case 'alta':
-        return 'border-l-orange-500'
-      case 'normal':
-        return 'border-l-blue-500'
-      case 'baixa':
-        return 'border-l-gray-500'
-      default:
-        return 'border-l-gray-300'
+      case 'high': return 'text-red-500'
+      case 'medium': return 'text-yellow-500'
+      case 'low': return 'text-green-500'
+      default: return 'text-gray-500'
     }
-  }
+  }, [])
 
-  const formatTime = (dateString) => {
+  const formatTime = useCallback((dateString) => {
+    if (!dateString) return ''
+    
     const date = new Date(dateString)
     const now = new Date()
-    const diff = now - date
+    const diffInHours = (now - date) / (1000 * 60 * 60)
     
-    if (diff < 60000) return 'agora'
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m`
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h`
-    return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
-  }
+    if (diffInHours < 24) {
+      return date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+    } else if (diffInHours < 48) {
+      return 'Ontem'
+    } else {
+      return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
+    }
+  }, [])
 
+  // Renderizar skeleton loading
   if (loading) {
     return (
-      <div className="h-full bg-background border-r border-border">
-        <div className="p-4 space-y-4">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="animate-pulse">
-              <div className="flex items-center space-x-3 p-3">
-                <div className="h-12 w-12 bg-muted rounded-full"></div>
-                <div className="flex-1 space-y-2">
-                  <div className="h-4 bg-muted rounded w-3/4"></div>
-                  <div className="h-3 bg-muted rounded w-1/2"></div>
-                </div>
-              </div>
-            </div>
+      <div className="h-full overflow-y-auto">
+        <div className="p-4 border-b border-border">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Chats</h2>
+            <div className="w-6 h-6 bg-gray-200 rounded animate-pulse"></div>
+          </div>
+          <div className="flex space-x-2">
+            {['all', 'waiting', 'active', 'resolved'].map(filter => (
+              <div key={filter} className="h-8 w-16 bg-gray-200 rounded animate-pulse"></div>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-1">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <ChatSkeleton key={i} />
           ))}
         </div>
       </div>
     )
   }
 
+  // Renderizar erro
+  if (error) {
+    return (
+      <div className="h-full flex items-center justify-center p-4">
+        <div className="text-center">
+          <div className="text-red-500 mb-2">❌ Erro ao carregar chats</div>
+          <div className="text-sm text-muted-foreground mb-4">{error}</div>
+          <button 
+            onClick={loadChats}
+            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div className="h-full bg-background flex flex-col">
-      {/* Header */}
+    <div className="h-full flex flex-col">
+      {/* Header com filtros */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-foreground">Chats</h2>
+          <h2 className="text-lg font-semibold">Chats</h2>
           <div className="flex items-center space-x-2">
-            <button className="p-2 hover:bg-accent rounded-lg transition-colors">
-              <Filter className="h-4 w-4 text-muted-foreground" />
-            </button>
-            <button className="p-2 hover:bg-accent rounded-lg transition-colors">
-              <MoreVertical className="h-4 w-4 text-muted-foreground" />
-            </button>
+            <Filter className="w-4 h-4 text-muted-foreground" />
+            <span className="text-sm text-muted-foreground">
+              {sortedChats.length} {sortedChats.length === 1 ? 'chat' : 'chats'}
+            </span>
           </div>
         </div>
-
-
-
+        
         {/* Filtros */}
         <div className="flex space-x-2">
           {[
-            { key: 'all', label: 'Todos' },
-            { key: 'waiting', label: 'Aguardando' },
-            { key: 'active', label: 'Ativo' },
-            { key: 'resolved', label: 'Resolvido' }
-          ].map((filterOption) => (
+            { key: 'all', label: 'Todos', icon: MessageCircle },
+            { key: 'waiting', label: 'Aguardando', icon: Clock },
+            { key: 'active', label: 'Ativos', icon: User },
+            { key: 'resolved', label: 'Resolvidos', icon: Archive }
+          ].map(({ key, label, icon: Icon }) => (
             <button
-              key={filterOption.key}
-              onClick={() => setFilter(filterOption.key)}
-              className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                filter === filterOption.key
+              key={key}
+              onClick={() => setFilter(key)}
+              className={`flex items-center space-x-1 px-3 py-1.5 rounded-md text-sm transition-colors ${
+                filter === key
                   ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-accent'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
               }`}
             >
-              {filterOption.label}
+              <Icon className="w-3 h-3" />
+              <span>{label}</span>
             </button>
           ))}
         </div>
@@ -232,94 +270,84 @@ const ChatList = ({ selectedChat, onSelectChat }) => {
 
       {/* Lista de chats */}
       <div className="flex-1 overflow-y-auto">
-        {filteredChats.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-muted-foreground">
+        {sortedChats.length === 0 ? (
+          <div className="flex items-center justify-center h-full text-muted-foreground">
             <div className="text-center">
-              <MessageCircle className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <MessageCircle className="w-12 h-12 mx-auto mb-2 opacity-50" />
               <p>Nenhum chat encontrado</p>
+              <p className="text-sm">Os chats aparecerão aqui quando houver mensagens</p>
             </div>
           </div>
         ) : (
-          <div className="space-y-1 p-2">
-            {filteredChats.map((chat) => (
+          <div className="space-y-1">
+            {sortedChats.map((chat) => (
               <motion.div
-                key={chat.id}
+                key={chat.chat_id || chat.id}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                whileHover={{ scale: 1.01 }}
+                transition={{ duration: 0.2 }}
                 onClick={() => onSelectChat(chat)}
                 className={`
-                  p-3 rounded-lg cursor-pointer transition-all duration-200 border-l-4
-                  ${selectedChat?.id === chat.id 
-                    ? 'bg-accent border-l-primary' 
-                    : `bg-card hover:bg-accent ${getPriorityColor(chat.atribuicao_atual?.prioridade)}`
+                  flex items-center space-x-3 p-3 cursor-pointer transition-colors
+                  ${selectedChat?.chat_id === chat.chat_id
+                    ? 'bg-primary/10 border-r-2 border-primary'
+                    : 'hover:bg-muted/50'
                   }
                 `}
               >
-                <div className="flex items-start space-x-3">
-                  {/* Avatar */}
-                  <div className="relative">
-                    {(chat.foto_perfil || chat.profile_picture) ? (
+                {/* Avatar */}
+                <div className="relative">
+                  {(chat.foto_perfil || chat.profile_picture) ? (
+                    <div className="w-10 h-10 rounded-full overflow-hidden">
                       <img
                         src={chat.foto_perfil || chat.profile_picture}
-                        alt={chat.sender_name}
-                        className="h-12 w-12 rounded-full object-cover border border-muted"
+                        alt={chat.contact_name || chat.sender_name || 'Foto do contato'}
+                        className="h-full w-full object-cover"
                         onError={(e) => {
-                          // Fallback para ícone se a imagem falhar
+                          // Fallback para avatar com inicial se a imagem falhar
                           e.target.style.display = 'none';
                           e.target.nextSibling.style.display = 'flex';
                         }}
                       />
-                    ) : null}
-                    <div className={`h-12 w-12 bg-primary rounded-full flex items-center justify-center ${(chat.foto_perfil || chat.profile_picture) ? 'hidden' : ''}`}>
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center text-primary-foreground font-semibold hidden">
+                        {chat.is_group ? (
+                          <Users className="w-5 h-5" />
+                        ) : (
+                          <span>{chat.contact_name?.charAt(0)?.toUpperCase() || '?'}</span>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-primary/80 flex items-center justify-center text-primary-foreground font-semibold">
                       {chat.is_group ? (
-                        <Users className="h-6 w-6 text-primary-foreground" />
+                        <Users className="w-5 h-5" />
                       ) : (
-                        <User className="h-6 w-6 text-primary-foreground" />
+                        <span>{chat.contact_name?.charAt(0)?.toUpperCase() || '?'}</span>
                       )}
                     </div>
-                    {chat.unread_count > 0 && (
-                      <div className="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                        {chat.unread_count}
-                      </div>
-                    )}
+                  )}
+                  <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-background ${getStatusColor(chat.status)}`}></div>
+                </div>
+
+                {/* Informações do chat */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-medium text-sm truncate">
+                      {chat.contact_name || chat.sender_name || `Chat ${chat.id}`}
+                    </h3>
+                    <span className="text-xs text-muted-foreground">
+                      {formatTime(chat.last_message_at)}
+                    </span>
                   </div>
-
-                  {/* Conteúdo */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-1">
-                      <h3 className="font-medium text-foreground truncate">
-                        {chat.is_group ? chat.group_name : chat.contact_name}
-                      </h3>
-                      <span className="text-xs text-muted-foreground">
-                        {formatTime(chat.ultima_mensagem.data)}
-                      </span>
-                    </div>
-
-                    <p className="text-sm text-muted-foreground truncate mb-2">
-                      {chat.ultima_mensagem.conteudo}
+                  
+                  <div className="flex items-center justify-between mt-1">
+                    <p className="text-xs text-muted-foreground truncate">
+                      {chat.ultima_mensagem?.conteudo || 'Nenhuma mensagem ainda'}
                     </p>
-
-                    <div className="flex items-center justify-between">
-                      <span className={`
-                        px-2 py-1 text-xs rounded-full
-                        ${getStatusColor(chat.atribuicao_atual?.status)}
-                      `}>
-                        {chat.atribuicao_atual?.status === 'aguardando' && 'Aguardando'}
-                        {chat.atribuicao_atual?.status === 'em_andamento' && 'Em andamento'}
-                        {chat.atribuicao_atual?.status === 'resolvido' && 'Resolvido'}
+                    {chat.unread_count > 0 && (
+                      <span className="bg-primary text-primary-foreground text-xs px-2 py-0.5 rounded-full min-w-[20px] text-center">
+                        {chat.unread_count}
                       </span>
-
-                      <div className="flex items-center space-x-1 text-xs text-muted-foreground">
-                        <MessageCircle className="h-3 w-3" />
-                        <span>{chat.total_mensagens}</span>
-                      </div>
-                    </div>
-
-                    {chat.atribuicao_atual?.usuario && (
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        Atribuído para: {chat.atribuicao_atual.usuario}
-                      </div>
                     )}
                   </div>
                 </div>

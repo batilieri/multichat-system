@@ -525,8 +525,9 @@ class WhatsAppWebhookProcessor:
                 conteudo=text_content or "Mídia",
                 tipo=message_type,
                 data_envio=timestamp,
-                fromMe=from_me,
+                from_me=from_me,
                 lida=False,
+                message_id=message_id,  # Adicionar o message_id do webhook
                 # Campos de mídia
                 media_type=media_type,
                 media_url=media_url,

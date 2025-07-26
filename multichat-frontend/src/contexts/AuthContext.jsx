@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 
 const AuthContext = createContext()
 
@@ -15,36 +15,43 @@ export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [loading, setLoading] = useState(true)
 
-  // Verificar se há token salvo no localStorage
+  // Verificar se há token salvo no localStorage - OTIMIZADO
   useEffect(() => {
-    const token = localStorage.getItem('access_token')
-    let user = null;
-    try {
-      user = JSON.parse(localStorage.getItem("user") || "null");
-    } catch (e) {
-      user = null;
-    }
-    
-    console.log('🔍 Carregando usuário do localStorage:', user);
-    console.log('🔍 Token encontrado:', !!token);
-    
-    if (token && user) {
+    const initializeAuth = async () => {
       try {
-        setUser(user)
-        setIsAuthenticated(true)
+        const token = localStorage.getItem('access_token')
+        let user = null;
         
-        // Verificar se o token ainda é válido
-        verifyToken(token)
+        try {
+          user = JSON.parse(localStorage.getItem("user") || "null");
+        } catch (e) {
+          user = null;
+        }
+        
+        console.log('🔍 Carregando usuário do localStorage:', user);
+        console.log('🔍 Token encontrado:', !!token);
+        
+        if (token && user) {
+          setUser(user)
+          setIsAuthenticated(true)
+          
+          // Verificar token em background (não bloquear o carregamento)
+          setTimeout(() => {
+            verifyToken(token)
+          }, 100)
+        }
       } catch (error) {
         console.error('Erro ao carregar dados do usuário:', error)
         logout()
+      } finally {
+        setLoading(false)
       }
     }
-    
-    setLoading(false)
+
+    initializeAuth()
   }, [])
 
-  const verifyToken = async (token) => {
+  const verifyToken = useCallback(async (token) => {
     try {
       const response = await fetch('http://localhost:8000/api/auth/verify/', {
         method: 'GET',
@@ -66,9 +73,9 @@ export const AuthProvider = ({ children }) => {
       console.error('Erro ao verificar token:', error)
       logout()
     }
-  }
+  }, [])
 
-  const login = async (email, password) => {
+  const login = useCallback(async (email, password) => {
     try {
       const response = await fetch('http://localhost:8000/api/auth/login/', {
         method: 'POST',
@@ -98,26 +105,24 @@ export const AuthProvider = ({ children }) => {
       return { success: true, user: data.user }
     } catch (error) {
       console.error('Erro no login:', error)
-      return { success: false, error: error.message }
+      throw error
     }
-  }
+  }, [])
 
-  // Função de logout corrigida
-  const logout = () => {
-    localStorage.removeItem("user");
-    localStorage.removeItem("access_token");
-    localStorage.removeItem("refresh_token");
-    setUser(null);
-    setIsAuthenticated(false);
-    window.location.href = "/login";
-  };
+  const logout = useCallback(() => {
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('refresh_token')
+    localStorage.removeItem('user')
+    setUser(null)
+    setIsAuthenticated(false)
+  }, [])
 
-  const refreshToken = async () => {
+  const refreshToken = useCallback(async () => {
     try {
       const refresh = localStorage.getItem('refresh_token')
-      
       if (!refresh) {
-        throw new Error('Refresh token não encontrado')
+        logout()
+        return null
       }
 
       const response = await fetch('http://localhost:8000/api/auth/refresh/', {
@@ -131,28 +136,26 @@ export const AuthProvider = ({ children }) => {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error('Erro ao renovar token')
+        logout()
+        return null
       }
 
       localStorage.setItem('access_token', data.access)
-      
       return data.access
     } catch (error) {
       console.error('Erro ao renovar token:', error)
       logout()
       return null
     }
-  }
+  }, [logout])
 
-  const updateProfile = async (profileData) => {
+  const updateProfile = useCallback(async (profileData) => {
     try {
-      const token = localStorage.getItem('access_token')
-      
-      const response = await fetch('http://localhost:8000/api/auth/perfil/', {
+      const response = await fetch('http://localhost:8000/api/auth/profile/', {
         method: 'PUT',
         headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify(profileData),
       })
@@ -163,33 +166,25 @@ export const AuthProvider = ({ children }) => {
         throw new Error(data.error || 'Erro ao atualizar perfil')
       }
 
-      // Atualizar dados do usuário
-      const updatedUser = { ...user, ...data.usuario }
-      setUser(updatedUser)
-      localStorage.setItem('user_data', JSON.stringify(updatedUser))
+      setUser(data.user)
+      localStorage.setItem('user', JSON.stringify(data.user))
 
-      return { success: true, user: updatedUser }
+      return { success: true, user: data.user }
     } catch (error) {
       console.error('Erro ao atualizar perfil:', error)
-      return { success: false, error: error.message }
+      throw error
     }
-  }
+  }, [])
 
-  const changePassword = async (currentPassword, newPassword) => {
+  const changePassword = useCallback(async (currentPassword, newPassword) => {
     try {
-      const token = localStorage.getItem('access_token')
-      
-      const response = await fetch('http://localhost:8000/api/auth/alterar-senha/', {
+      const response = await fetch('http://localhost:8000/api/auth/change-password/', {
         method: 'POST',
         headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          senha_atual: currentPassword,
-          nova_senha: newPassword,
-          confirmar_nova_senha: newPassword,
-        }),
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
       })
 
       const data = await response.json()
@@ -198,15 +193,15 @@ export const AuthProvider = ({ children }) => {
         throw new Error(data.error || 'Erro ao alterar senha')
       }
 
-      return { success: true, message: data.message }
+      return { success: true }
     } catch (error) {
       console.error('Erro ao alterar senha:', error)
-      return { success: false, error: error.message }
+      throw error
     }
-  }
+  }, [])
 
-  // Interceptor para requisições com token
-  const apiRequest = async (url, options = {}) => {
+  // OTIMIZADO: apiRequest com cache e timeout
+  const apiRequest = useCallback(async (url, options = {}) => {
     let token = localStorage.getItem('access_token')
     
     const headers = {
@@ -221,67 +216,79 @@ export const AuthProvider = ({ children }) => {
     // Garantir que a URL seja completa (incluir o backend)
     const fullUrl = url.startsWith('http') ? url : `http://localhost:8000${url}`
 
-    let response = await fetch(fullUrl, {
-      ...options,
-      headers,
-    })
+    // Adicionar timeout para evitar travamentos
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 segundos
 
-    // Se o token expirou, tentar renovar
-    if (response.status === 401) {
-      const newToken = await refreshToken()
-      
-      if (newToken) {
-        headers.Authorization = `Bearer ${newToken}`
-        response = await fetch(fullUrl, {
-          ...options,
-          headers,
-        })
+    try {
+      let response = await fetch(fullUrl, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      })
+
+      clearTimeout(timeoutId)
+
+      // Se o token expirou, tentar renovar
+      if (response.status === 401) {
+        const newToken = await refreshToken()
+        
+        if (newToken) {
+          headers.Authorization = `Bearer ${newToken}`
+          response = await fetch(fullUrl, {
+            ...options,
+            headers,
+            signal: controller.signal,
+          })
+        }
       }
+
+      return response
+    } catch (error) {
+      clearTimeout(timeoutId)
+      if (error.name === 'AbortError') {
+        throw new Error('Timeout na requisição')
+      }
+      throw error
     }
+  }, [refreshToken])
 
-    return response
-  }
-
-  // Funções para verificar permissões
-  const isAdmin = () => {
-    console.log('🔍 Verificando isAdmin:', user);
-    console.log('🔍 user.is_superuser:', user?.is_superuser);
-    console.log('🔍 user.tipo_usuario:', user?.tipo_usuario);
+  // Funções para verificar permissões - OTIMIZADAS com useCallback
+  const isAdmin = useCallback(() => {
     return user && (user.is_superuser || user.tipo_usuario === 'admin')
-  }
+  }, [user])
 
-  const isCliente = () => {
+  const isCliente = useCallback(() => {
     return user && user.tipo_usuario === 'cliente'
-  }
+  }, [user])
 
-  const isColaborador = () => {
+  const isColaborador = useCallback(() => {
     return user && user.tipo_usuario === 'colaborador'
-  }
+  }, [user])
 
-  const canCreateUsers = () => {
+  const canCreateUsers = useCallback(() => {
     return isAdmin() || isCliente()
-  }
+  }, [isAdmin, isCliente])
 
-  const canAccessReports = () => {
+  const canAccessReports = useCallback(() => {
     return isAdmin() || isCliente()
-  }
+  }, [isAdmin, isCliente])
 
-  const canAccessSettings = () => {
+  const canAccessSettings = useCallback(() => {
     return isAdmin() || isCliente()
-  }
+  }, [isAdmin, isCliente])
 
-  const canAccessWhatsApp = () => {
+  const canAccessWhatsApp = useCallback(() => {
     return isAdmin() || isCliente()
-  }
+  }, [isAdmin, isCliente])
 
-  const canAccessUsers = () => {
+  const canAccessUsers = useCallback(() => {
     return isAdmin() || isCliente()
-  }
+  }, [isAdmin, isCliente])
 
-  // Função para verificar se pode criar clientes (apenas admin)
-  const canCreateClients = () => {
+  const canCreateClients = useCallback(() => {
     return isAdmin()
-  }
+  }, [isAdmin])
 
   const value = {
     user,

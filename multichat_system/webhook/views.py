@@ -548,22 +548,50 @@ def save_message_to_chat(payload, event):
         
         logger.info(f"🔍 Determinação from_me: sender_id={payload.get('sender', {}).get('id', '')}, instance_id={payload.get('instanceId', '')}, from_me={from_me}")
         
-        # Verificar se já existe
+        # Verificar se já existe usando message_id (mais confiável)
+        if message_id and Mensagem.objects.filter(message_id=message_id).exists():
+            logger.info(f"Mensagem já existe (message_id): {message_id}")
+            return True
+        
+        # Verificação adicional por chat_id e timestamp (fallback)
         if Mensagem.objects.filter(chat__chat_id=chat_id, data_envio__timestamp=payload.get('messageTimestamp', 0)).exists():
-            logger.info(f"Mensagem já existe: {message_id}")
+            logger.info(f"Mensagem já existe (timestamp): {message_id}")
             return True
         
         # Encontrar ou criar o chat
-        chat, created = Chat.objects.get_or_create(
-            chat_id=chat_id,  # IMPORTANTE: usar chat_id aqui
-            cliente=None, # Cliente será definido posteriormente
-            defaults={
-                "status": "active",
-                "canal": "whatsapp",
-                "data_inicio": timezone.now(),
-                "last_message_at": timezone.now()
-            }
-        )
+        # Primeiro tentar encontrar um chat existente
+        chat = Chat.objects.filter(chat_id=chat_id).first()
+        
+        if not chat:
+            # Se não existir, criar um novo chat
+            # Buscar o cliente da instância
+            try:
+                instance = WhatsappInstance.objects.get(instance_id=instance_id)
+                cliente = instance.cliente
+            except WhatsappInstance.DoesNotExist:
+                logger.error(f"Instância {instance_id} não encontrada")
+                return False
+            
+            chat = Chat.objects.create(
+                chat_id=chat_id,
+                cliente=cliente,  # Associar ao cliente correto
+                status="active",
+                canal="whatsapp",
+                data_inicio=timezone.now(),
+                last_message_at=timezone.now()
+            )
+            logger.info(f"✅ Chat criado: {chat_id} para cliente: {cliente.nome}")
+        else:
+            # Se o chat existir mas não tiver cliente, associar
+            if not chat.cliente:
+                try:
+                    instance = WhatsappInstance.objects.get(instance_id=instance_id)
+                    chat.cliente = instance.cliente
+                    chat.save()
+                    logger.info(f"✅ Chat {chat_id} associado ao cliente: {instance.cliente.nome}")
+                except WhatsappInstance.DoesNotExist:
+                    logger.error(f"Instância {instance_id} não encontrada para chat {chat_id}")
+                    return False
         
         if not chat:
             logger.error(f"Não foi possível encontrar/criar chat para: {chat_id}")
@@ -617,9 +645,14 @@ def save_message_to_chat_with_from_me(payload, event, from_me, cliente):
         
         logger.info(f"🔍 Salvando mensagem com from_me={from_me} para cliente: {cliente.nome if cliente else 'N/A'}")
         
-        # Verificar se já existe
+        # Verificar se já existe usando message_id (mais confiável)
+        if message_id and Mensagem.objects.filter(message_id=message_id).exists():
+            logger.info(f"Mensagem já existe (message_id): {message_id}")
+            return True
+        
+        # Verificação adicional por chat_id e timestamp (fallback)
         if Mensagem.objects.filter(chat__chat_id=chat_id, data_envio__timestamp=payload.get('messageTimestamp', 0)).exists():
-            logger.info(f"Mensagem já existe: {message_id}")
+            logger.info(f"Mensagem já existe (timestamp): {message_id}")
             return True
         
         # Encontrar ou criar o chat associado ao cliente
@@ -804,23 +837,116 @@ def extract_message_content(message_data, message_type):
     elif message_type == 'image':
         image_msg = message.get('imageMessage', {})
         caption = image_msg.get('caption', '')
-        return f"[Imagem]{' - ' + caption if caption else ''}"
+        # Preservar a URL da imagem no conteúdo
+        image_url = image_msg.get('url', '')
+        if image_url:
+            return json.dumps({
+                'imageMessage': {
+                    'url': image_url,
+                    'caption': caption,
+                    'mimetype': image_msg.get('mimetype', ''),
+                    'fileLength': image_msg.get('fileLength', ''),
+                    'height': image_msg.get('height'),
+                    'width': image_msg.get('width'),
+                    'jpegThumbnail': image_msg.get('jpegThumbnail', ''),
+                    'mediaKey': image_msg.get('mediaKey', ''),
+                    'directPath': image_msg.get('directPath', ''),
+                    'fileSha256': image_msg.get('fileSha256', ''),
+                    'fileEncSha256': image_msg.get('fileEncSha256', ''),
+                    'mediaKeyTimestamp': image_msg.get('mediaKeyTimestamp', '')
+                }
+            }, ensure_ascii=False)
+        else:
+            return f"[Imagem]{' - ' + caption if caption else ''}"
     
     elif message_type == 'video':
         video_msg = message.get('videoMessage', {})
         caption = video_msg.get('caption', '')
-        return f"[Vídeo]{' - ' + caption if caption else ''}"
+        # Preservar a URL do vídeo no conteúdo
+        video_url = video_msg.get('url', '')
+        if video_url:
+            return json.dumps({
+                'videoMessage': {
+                    'url': video_url,
+                    'caption': caption,
+                    'mimetype': video_msg.get('mimetype', ''),
+                    'fileLength': video_msg.get('fileLength', ''),
+                    'mediaKey': video_msg.get('mediaKey', ''),
+                    'directPath': video_msg.get('directPath', ''),
+                    'fileSha256': video_msg.get('fileSha256', ''),
+                    'fileEncSha256': video_msg.get('fileEncSha256', ''),
+                    'mediaKeyTimestamp': video_msg.get('mediaKeyTimestamp', '')
+                }
+            }, ensure_ascii=False)
+        else:
+            return f"[Vídeo]{' - ' + caption if caption else ''}"
     
     elif message_type == 'audio':
-        return "[Áudio]"
+        audio_msg = message.get('audioMessage', {})
+        # Preservar a URL do áudio no conteúdo
+        audio_url = audio_msg.get('url', '')
+        if audio_url:
+            return json.dumps({
+                'audioMessage': {
+                    'url': audio_url,
+                    'mimetype': audio_msg.get('mimetype', ''),
+                    'fileLength': audio_msg.get('fileLength', ''),
+                    'mediaKey': audio_msg.get('mediaKey', ''),
+                    'directPath': audio_msg.get('directPath', ''),
+                    'fileSha256': audio_msg.get('fileSha256', ''),
+                    'fileEncSha256': audio_msg.get('fileEncSha256', ''),
+                    'mediaKeyTimestamp': audio_msg.get('mediaKeyTimestamp', ''),
+                    'isPtt': audio_msg.get('isPtt', False)
+                }
+            }, ensure_ascii=False)
+        else:
+            return "[Áudio]"
     
     elif message_type == 'document':
         doc_msg = message.get('documentMessage', {})
         filename = doc_msg.get('fileName', 'Documento')
-        return f"[Documento] {filename}"
+        # Preservar a URL do documento no conteúdo
+        doc_url = doc_msg.get('url', '')
+        if doc_url:
+            return json.dumps({
+                'documentMessage': {
+                    'url': doc_url,
+                    'fileName': filename,
+                    'mimetype': doc_msg.get('mimetype', ''),
+                    'fileLength': doc_msg.get('fileLength', ''),
+                    'mediaKey': doc_msg.get('mediaKey', ''),
+                    'directPath': doc_msg.get('directPath', ''),
+                    'fileSha256': doc_msg.get('fileSha256', ''),
+                    'fileEncSha256': doc_msg.get('fileEncSha256', ''),
+                    'mediaKeyTimestamp': doc_msg.get('mediaKeyTimestamp', '')
+                }
+            }, ensure_ascii=False)
+        else:
+            return f"[Documento] {filename}"
     
     elif message_type == 'sticker':
-        return "[Sticker]"
+        sticker_msg = message.get('stickerMessage', {})
+        # Preservar a URL do sticker no conteúdo
+        sticker_url = sticker_msg.get('url', '')
+        if sticker_url:
+            return json.dumps({
+                'stickerMessage': {
+                    'url': sticker_url,
+                    'mimetype': sticker_msg.get('mimetype', ''),
+                    'fileLength': sticker_msg.get('fileLength', ''),
+                    'mediaKey': sticker_msg.get('mediaKey', ''),
+                    'directPath': sticker_msg.get('directPath', ''),
+                    'fileSha256': sticker_msg.get('fileSha256', ''),
+                    'fileEncSha256': sticker_msg.get('fileEncSha256', ''),
+                    'mediaKeyTimestamp': sticker_msg.get('mediaKeyTimestamp', ''),
+                    'isAnimated': sticker_msg.get('isAnimated', False),
+                    'isAvatar': sticker_msg.get('isAvatar', False),
+                    'isAi': sticker_msg.get('isAi', False),
+                    'isLottie': sticker_msg.get('isLottie', False)
+                }
+            }, ensure_ascii=False)
+        else:
+            return "[Sticker]"
     
     elif message_type == 'location':
         location_msg = message.get('locationMessage', {})

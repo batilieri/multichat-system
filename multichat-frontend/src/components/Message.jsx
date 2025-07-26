@@ -174,38 +174,33 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
     }
     
     try {
-      // TODO: Implementar chamada à API para excluir mensagem
-      // const response = await fetch(`/api/mensagens/${message.id}/`, {
-      //   method: 'DELETE',
-      //   headers: {
-      //     'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-      //     'Content-Type': 'application/json',
-      //   },
-      // })
-      
-      // if (response.ok) {
-      //   setIsDeleted(true)
-      //   toast({
-      //     title: "Mensagem excluída",
-      //     description: "A mensagem foi excluída com sucesso",
-      //     duration: 2000,
-      //   })
-      // } else {
-      //   throw new Error('Erro ao excluir mensagem')
-      // }
-      
-      // Por enquanto, apenas simular exclusão
-      setIsDeleted(true)
-      toast({
-        title: "Mensagem excluída",
-        description: `Mensagem ID: ${message.id} excluída com sucesso`,
-        duration: 2000,
+      // Chamada real à API para excluir mensagem
+      const response = await fetch(`/api/mensagens/${message.id}/`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Content-Type': 'application/json',
+        },
       })
+      
+      const data = await response.json()
+      
+      if (response.ok) {
+        setIsDeleted(true)
+        toast({
+          title: "Mensagem excluída",
+          description: data.message || "A mensagem foi excluída com sucesso",
+          duration: 2000,
+        })
+        console.log('✅ Mensagem excluída com sucesso:', data)
+      } else {
+        throw new Error(data.error || data.details || 'Erro ao excluir mensagem')
+      }
     } catch (error) {
       console.error('Erro ao excluir mensagem:', error)
       toast({
         title: "Erro ao excluir",
-        description: "Não foi possível excluir a mensagem",
+        description: error.message || "Não foi possível excluir a mensagem",
         duration: 3000,
       })
     }

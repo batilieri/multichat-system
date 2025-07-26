@@ -819,6 +819,10 @@ class MensagemViewSet(viewsets.ModelViewSet):
         """
         Retorna o queryset de mensagens baseado no tipo de usuário logado.
         """
+        # Verificar se o request tem usuário autenticado
+        if not hasattr(self.request, 'user') or not self.request.user.is_authenticated:
+            return Mensagem.objects.none()
+        
         user = self.request.user
         if user.is_superuser or (hasattr(user, 'tipo_usuario') and user.tipo_usuario == 'admin'):
             return Mensagem.objects.all()
@@ -904,6 +908,84 @@ class MensagemViewSet(viewsets.ModelViewSet):
             
         except Exception as e:
             logger.error(f'❌ Erro ao marcar mensagens como lidas: {e}')
+            return Response({
+                'error': 'Erro interno do servidor'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        Exclui uma mensagem do banco de dados e da W-API.
+        """
+        try:
+            mensagem = self.get_object()
+            
+            # Verificar se a mensagem tem message_id (ID do WhatsApp)
+            if not mensagem.message_id:
+                return Response({
+                    'error': 'Esta mensagem não pode ser excluída (sem ID do WhatsApp)'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Verificar se é uma mensagem enviada pelo usuário (from_me=True)
+            if not mensagem.from_me:
+                return Response({
+                    'error': 'Apenas mensagens enviadas por você podem ser excluídas'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Buscar a instância WhatsApp do cliente
+            try:
+                instancia = WhatsappInstance.objects.get(cliente=mensagem.chat.cliente)
+            except WhatsappInstance.DoesNotExist:
+                return Response({
+                    'error': 'Instância WhatsApp não encontrada para este cliente'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Importar e usar a classe DeletaMensagem
+            import sys
+            import os
+            # Adicionar o diretório wapi ao path
+            wapi_path = os.path.join(os.path.dirname(__file__), '..', '..', 'wapi')
+            if wapi_path not in sys.path:
+                sys.path.append(wapi_path)
+            
+            try:
+                from mensagem.deletar.deletarMensagens import DeletaMensagem
+            except ImportError as e:
+                logger.error(f'❌ Erro ao importar DeletaMensagem: {e}')
+                return Response({
+                    'error': 'Erro interno: módulo de exclusão não encontrado'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+            # Criar instância do deletador
+            deletador = DeletaMensagem(instancia.instance_id, instancia.token)
+            
+            # Excluir da W-API
+            resultado_wapi = deletador.deletar(
+                phone_number=mensagem.chat.chat_id,
+                message_ids=mensagem.message_id
+            )
+            
+            if resultado_wapi.get('success'):
+                # Se excluiu com sucesso na W-API, excluir do banco
+                mensagem.delete()
+                
+                logger.info(f'✅ Mensagem {mensagem.message_id} excluída com sucesso da W-API e do banco')
+                
+                return Response({
+                    'success': True,
+                    'message': 'Mensagem excluída com sucesso',
+                    'wapi_result': resultado_wapi
+                }, status=status.HTTP_200_OK)
+            else:
+                # Se falhou na W-API, retornar erro
+                logger.error(f'❌ Erro ao excluir mensagem na W-API: {resultado_wapi}')
+                
+                return Response({
+                    'error': 'Erro ao excluir mensagem no WhatsApp',
+                    'details': resultado_wapi.get('error', 'Erro desconhecido')
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            logger.error(f'❌ Erro ao excluir mensagem: {e}')
             return Response({
                 'error': 'Erro interno do servidor'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
