@@ -175,7 +175,7 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
     
     try {
       // Chamada real à API para excluir mensagem
-      const response = await fetch(`/api/mensagens/${message.id}/`, {
+      const response = await fetch(`http://localhost:8000/api/mensagens/${message.id}/`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
@@ -183,7 +183,14 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
         },
       })
       
-      const data = await response.json()
+      let data = {}
+      try {
+        data = await response.json()
+      } catch (jsonError) {
+        console.warn('Resposta não é JSON válido:', response.status, response.statusText)
+        // Se não conseguir fazer parse do JSON, usar status da resposta
+        data = { error: `Erro ${response.status}: ${response.statusText}` }
+      }
       
       if (response.ok) {
         setIsDeleted(true)
@@ -194,7 +201,7 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
         })
         console.log('✅ Mensagem excluída com sucesso:', data)
       } else {
-        throw new Error(data.error || data.details || 'Erro ao excluir mensagem')
+        throw new Error(data.error || data.details || `Erro ${response.status}: ${response.statusText}`)
       }
     } catch (error) {
       console.error('Erro ao excluir mensagem:', error)

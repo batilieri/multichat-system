@@ -342,6 +342,24 @@ class WhatsAppWebhookProcessor:
         if message_id and CoreMensagem.objects.filter(message_id=message_id).exists():
             logger.info(f"Mensagem já existe: {message_id}")
             return None
+            
+        # VERIFICAR SE É MENSAGEM DE PROTOCOLO (não deve ser salva)
+        is_protocol_message = (
+            'protocolMessage' in text_content or
+            'APP_STATE_SYNC_KEY_REQUEST' in text_content or
+            'deviceListMetadata' in text_content or
+            'messageContextInfo' in text_content or
+            'senderKeyHash' in text_content or
+            'senderTimestamp' in text_content or
+            'deviceListMetadataVersion' in text_content or
+            'keyIds' in text_content or
+            'keyId' in text_content or
+            'AAAAACSE' in text_content
+        )
+        
+        if is_protocol_message:
+            logger.info(f"Mensagem de protocolo ignorada: {message_id}")
+            return None
         # Inicializar campos detalhados
         media_url = None
         media_type = None
@@ -759,8 +777,22 @@ class WhatsAppWebhookProcessor:
                     webhook_event.save()
                     return
                 
-                # Criar mensagem usando core.Mensagem (apenas se não existir)
-                if message_id and text_content and not CoreMensagem.objects.filter(message_id=message_id).exists():
+                # VERIFICAR SE É MENSAGEM DE PROTOCOLO (não deve ser salva)
+                is_protocol_message = (
+                    'protocolMessage' in text_content or
+                    'APP_STATE_SYNC_KEY_REQUEST' in text_content or
+                    'deviceListMetadata' in text_content or
+                    'messageContextInfo' in text_content or
+                    'senderKeyHash' in text_content or
+                    'senderTimestamp' in text_content or
+                    'deviceListMetadataVersion' in text_content or
+                    'keyIds' in text_content or
+                    'keyId' in text_content or
+                    'AAAAACSE' in text_content
+                )
+                
+                # Criar mensagem usando core.Mensagem (apenas se não existir e não for protocolo)
+                if message_id and text_content and not is_protocol_message and not CoreMensagem.objects.filter(message_id=message_id).exists():
                     # Buscar ou criar chat no modelo core.Chat
                     core_chat, created = CoreChat.objects.get_or_create(
                         chat_id=chat_id,

@@ -850,6 +850,30 @@ class MensagemViewSet(viewsets.ModelViewSet):
         if lida is not None:
             queryset = queryset.filter(lida=lida.lower() == 'true')
         
+        # EXCLUIR MENSAGENS DE PROTOCOLO DO WHATSAPP
+        # Filtrar mensagens que contêm dados de protocolo (não devem aparecer no chat)
+        queryset = queryset.exclude(
+            conteudo__icontains='protocolMessage'
+        ).exclude(
+            conteudo__icontains='APP_STATE_SYNC_KEY_REQUEST'
+        ).exclude(
+            conteudo__icontains='deviceListMetadata'
+        ).exclude(
+            conteudo__icontains='messageContextInfo'
+        ).exclude(
+            conteudo__icontains='senderKeyHash'
+        ).exclude(
+            conteudo__icontains='senderTimestamp'
+        ).exclude(
+            conteudo__icontains='deviceListMetadataVersion'
+        ).exclude(
+            conteudo__icontains='keyIds'
+        ).exclude(
+            conteudo__icontains='keyId'
+        ).exclude(
+            conteudo__icontains='AAAAACSE'
+        )
+        
         # Ordenar por data de envio (mais recentes primeiro)
         queryset = queryset.order_by('-data_envio')
         

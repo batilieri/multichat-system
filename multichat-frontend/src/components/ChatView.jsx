@@ -283,21 +283,41 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
         
         // Verificar se o conteúdo é JSON válido
         let conteudoProcessado = msg.conteudo || msg.content || ''
+        let mediaUrl = null
+        let mediaType = null
+        let mediaCaption = null
+        
         if (typeof conteudoProcessado === 'string' && conteudoProcessado.startsWith('{')) {
           try {
             const jsonContent = JSON.parse(conteudoProcessado)
             console.log('📄 Conteúdo JSON detectado:', jsonContent)
-            // Para mensagens JSON, usar uma representação mais amigável
-            if (jsonContent.textMessage) {
-              conteudoProcessado = jsonContent.textMessage.text || 'Mensagem de texto'
-            } else if (jsonContent.imageMessage) {
-              conteudoProcessado = '[Imagem]'
-            } else if (jsonContent.audioMessage) {
-              conteudoProcessado = '[Áudio]'
+            
+            // Extrair informações de mídia do JSON
+            if (jsonContent.imageMessage) {
+              mediaUrl = jsonContent.imageMessage.url
+              mediaType = 'image'
+              mediaCaption = jsonContent.imageMessage.caption
+              conteudoProcessado = mediaCaption || '[Imagem]'
             } else if (jsonContent.videoMessage) {
-              conteudoProcessado = '[Vídeo]'
+              mediaUrl = jsonContent.videoMessage.url
+              mediaType = 'video'
+              mediaCaption = jsonContent.videoMessage.caption
+              conteudoProcessado = mediaCaption || '[Vídeo]'
+            } else if (jsonContent.audioMessage) {
+              mediaUrl = jsonContent.audioMessage.url
+              mediaType = 'audio'
+              conteudoProcessado = '[Áudio]'
             } else if (jsonContent.documentMessage) {
-              conteudoProcessado = '[Documento]'
+              mediaUrl = jsonContent.documentMessage.url
+              mediaType = 'document'
+              mediaCaption = jsonContent.documentMessage.fileName
+              conteudoProcessado = `[Documento] ${mediaCaption || 'Documento'}`
+            } else if (jsonContent.stickerMessage) {
+              mediaUrl = jsonContent.stickerMessage.url
+              mediaType = 'sticker'
+              conteudoProcessado = '[Sticker]'
+            } else if (jsonContent.textMessage) {
+              conteudoProcessado = jsonContent.textMessage.text || 'Mensagem de texto'
             } else {
               conteudoProcessado = '[Mídia]'
             }
@@ -308,7 +328,8 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
         }
         
         const transformedMessage = {
-          id: msg.id,
+          id: msg.message_id || msg.id, // Usar message_id do webhook se disponível, senão usar id interno
+          internalId: msg.id, // Manter o ID interno para referência
           type: msg.tipo,
           content: conteudoProcessado,
           timestamp: msg.data_envio,
@@ -317,42 +338,43 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
           status: msg.lida ? 'read' : 'sent',
           replyTo: null,
           forwarded: false,
-        // Campos detalhados de mídia (snake_case -> camelCase)
-        mediaUrl: msg.media_url,
-        mediaType: msg.media_type,
-        mediaSize: msg.media_size,
-        mediaCaption: msg.media_caption,
-        mediaHeight: msg.media_height,
-        mediaWidth: msg.media_width,
-        jpegThumbnail: msg.jpeg_thumbnail,
-        fileSha256: msg.file_sha256,
-        mediaKey: msg.media_key,
-        directPath: msg.direct_path,
-        mediaKeyTimestamp: msg.media_key_timestamp,
-        documentUrl: msg.document_url,
-        documentFilename: msg.document_filename,
-        documentMimetype: msg.document_mimetype,
-        documentFileLength: msg.document_file_length,
-        documentPageCount: msg.document_page_count,
-        locationLatitude: msg.location_latitude,
-        locationLongitude: msg.location_longitude,
-        locationName: msg.location_name,
-        locationAddress: msg.location_address,
-        pollName: msg.poll_name,
-        pollOptions: msg.poll_options,
-        pollSelectableCount: msg.poll_selectable_count,
-        stickerUrl: msg.sticker_url,
-        stickerMimetype: msg.sticker_mimetype,
-        stickerFileLength: msg.sticker_file_length,
-        stickerIsAnimated: msg.sticker_is_animated,
-        stickerIsAvatar: msg.sticker_is_avatar,
-        stickerIsAi: msg.sticker_is_ai,
-        stickerIsLottie: msg.sticker_is_lottie,
-        thumbnailDirectPath: msg.thumbnail_direct_path,
-        thumbnailSha256: msg.thumbnail_sha256,
-        thumbnailEncSha256: msg.thumbnail_enc_sha256,
-        thumbnailHeight: msg.thumbnail_height,
-        thumbnailWidth: msg.thumbnail_width
+          // Campos de mídia extraídos do JSON (prioridade sobre campos do banco)
+          mediaUrl: mediaUrl || msg.media_url,
+          mediaType: mediaType || msg.media_type,
+          mediaCaption: mediaCaption || msg.media_caption,
+          // Campos detalhados de mídia (snake_case -> camelCase)
+          mediaSize: msg.media_size,
+          mediaHeight: msg.media_height,
+          mediaWidth: msg.media_width,
+          jpegThumbnail: msg.jpeg_thumbnail,
+          fileSha256: msg.file_sha256,
+          mediaKey: msg.media_key,
+          directPath: msg.direct_path,
+          mediaKeyTimestamp: msg.media_key_timestamp,
+          documentUrl: msg.document_url,
+          documentFilename: msg.document_filename,
+          documentMimetype: msg.document_mimetype,
+          documentFileLength: msg.document_file_length,
+          documentPageCount: msg.document_page_count,
+          locationLatitude: msg.location_latitude,
+          locationLongitude: msg.location_longitude,
+          locationName: msg.location_name,
+          locationAddress: msg.location_address,
+          pollName: msg.poll_name,
+          pollOptions: msg.poll_options,
+          pollSelectableCount: msg.poll_selectable_count,
+          stickerUrl: msg.sticker_url,
+          stickerMimetype: msg.sticker_mimetype,
+          stickerFileLength: msg.sticker_file_length,
+          stickerIsAnimated: msg.sticker_is_animated,
+          stickerIsAvatar: msg.sticker_is_avatar,
+          stickerIsAi: msg.sticker_is_ai,
+          stickerIsLottie: msg.sticker_is_lottie,
+          thumbnailDirectPath: msg.thumbnail_direct_path,
+          thumbnailSha256: msg.thumbnail_sha256,
+          thumbnailEncSha256: msg.thumbnail_enc_sha256,
+          thumbnailHeight: msg.thumbnail_height,
+          thumbnailWidth: msg.thumbnail_width
         }
         
         // Log para verificar se o ID está sendo preservado
