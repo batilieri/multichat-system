@@ -27,6 +27,7 @@ import {
   Heart
 } from 'lucide-react'
 import Message from './Message'
+import EmojiPicker from './EmojiPicker'
 import { getMessagesByChat, getPinnedMessages, getFavoritedMessages } from '../data/mock/messages'
 import { getAllChats } from '../data/mock/chats'
 import { useAuth } from '../contexts/AuthContext'
@@ -114,6 +115,13 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
   const [showFavoritesModal, setShowFavoritesModal] = useState(false)
   const [favoritedMessages, setFavoritedMessages] = useState([])
   const [pinnedMessages, setPinnedMessages] = useState([])
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  
+  // Estados para encaminhamento de mensagens
+  const [forwardModalMessage, setForwardModalMessage] = useState(null)
+  const [forwardModalOpen, setForwardModalOpen] = useState(false)
+  const [selectedChats, setSelectedChats] = useState([])
+  const [forwardSearch, setForwardSearch] = useState('')
   
   // refs para scroll até mensagem
   const messageRefs = React.useRef({})
@@ -134,6 +142,18 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     }, 1000)
     return () => clearInterval(interval)
   }, [])
+
+  // Fechar emoji picker quando clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showEmojiPicker && !event.target.closest('.emoji-picker-container')) {
+        setShowEmojiPicker(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showEmojiPicker])
 
   // Função para adicionar nova mensagem em tempo real
   const handleNewMessage = (newMessage) => {
@@ -321,14 +341,6 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     }
   }
   const [replyTo, setReplyTo] = useState(null) // Novo estado para resposta
-  const allChats = getAllChats()
-  const filteredChats = allChats.filter(chat => {
-    const name = chat.is_group ? chat.group_name : chat.contact_name
-    return name && name.toLowerCase().includes(forwardSearch.toLowerCase())
-  })
-  // refs para scroll até mensagem
-  const messageRefs = React.useRef({})
-  const [infoModalMessage, setInfoModalMessage] = useState(null)
 
   // Função utilitária para encontrar cliente por email ou nome
   const encontrarCliente = (email, nome, clients) => {
@@ -454,6 +466,29 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     setForwardModalMessage(null)
     setSelectedChats([])
     setForwardSearch("")
+  }
+
+  // Função para lidar com seleção de emoji
+  const handleEmojiSelect = (emoji) => {
+    setMessage(prev => prev + emoji)
+  }
+
+  // Função para agrupar mensagens por data
+  const groupMessagesByDate = (messages) => {
+    const groups = {}
+    messages.forEach(msg => {
+      const date = new Date(msg.timestamp).toLocaleDateString('pt-BR', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      })
+      if (!groups[date]) {
+        groups[date] = []
+      }
+      groups[date].push(msg)
+    })
+    return groups
   }
 
   // Função para abrir modal de dados da mensagem
@@ -809,7 +844,24 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
               placeholder="Digite sua mensagem..."
               className="w-full px-4 py-2 border border-input rounded-lg bg-background text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
             />
+            
+            {/* Emoji Picker */}
+            {showEmojiPicker && (
+              <div className="absolute bottom-full right-0 mb-2 z-50 emoji-picker-container">
+                <EmojiPicker
+                  onSelect={handleEmojiSelect}
+                  onClose={() => setShowEmojiPicker(false)}
+                />
+              </div>
+            )}
           </div>
+
+          <button 
+            className="p-2 hover:bg-accent rounded-lg transition-colors"
+            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+          >
+            <Smile className="h-5 w-5 text-muted-foreground" />
+          </button>
 
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -820,12 +872,6 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
           >
             <Send className="h-5 w-5" />
           </motion.button>
-
-          <button className="p-2 hover:bg-accent rounded-lg transition-colors">
-            <Smile className="h-5 w-5 text-muted-foreground" />
-          </button>
-
-          {/* Remover o botão tradicional de envio (motion.button) */}
         </div>
       </div>
 
