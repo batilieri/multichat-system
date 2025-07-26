@@ -35,7 +35,7 @@ from .serializers import (
     ClienteSerializer, DepartamentoSerializer, ChatSerializer,
     MensagemSerializer, WebhookEventSerializer, WhatsappInstanceSerializer
 )
-from .permissions import IsAdminOrReadOnly, IsAtendenteOrAdmin, IsClienteOwner, IsClienteOrAdmin, IsColaboradorOnly, IsAdminOrCliente
+from .permissions import IsAdminOrReadOnly, IsAtendenteOrAdmin, IsClienteOwner, IsClienteOrAdmin, IsColaboradorOnly, IsAdminOrCliente, IsClienteInstanceOwner
 from .wapi_integration import WApiIntegration
 from django.shortcuts import render
 from django.http import JsonResponse
@@ -384,10 +384,12 @@ class WhatsappInstanceViewSet(viewsets.ModelViewSet):
         serializer = WhatsappInstanceEditSerializer(instance)
         return Response(serializer.data)
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], permission_classes=[IsClienteInstanceOwner])
     def refresh_status(self, request, pk=None):
         """
         Atualiza o status de uma instância específica.
+        Clientes podem atualizar apenas suas próprias instâncias.
+        Administradores podem atualizar qualquer instância.
         """
         instancia = self.get_object()
         
@@ -412,10 +414,12 @@ class WhatsappInstanceViewSet(viewsets.ModelViewSet):
                 "error": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    @action(detail=True, methods=["post"])
+    @action(detail=True, methods=["post"], permission_classes=[IsClienteInstanceOwner])
     def send_message(self, request, pk=None):
         """
         Envia uma mensagem através da instância do WhatsApp.
+        Clientes podem enviar mensagens apenas através de suas próprias instâncias.
+        Administradores podem enviar mensagens através de qualquer instância.
         """
         instancia = self.get_object()
         numero_destino = request.data.get("numero_destino")
@@ -446,10 +450,12 @@ class WhatsappInstanceViewSet(viewsets.ModelViewSet):
                 "error": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    @action(detail=True, methods=["get"])
+    @action(detail=True, methods=["get"], permission_classes=[IsClienteInstanceOwner])
     def generate_qr(self, request, pk=None):
         """
         Gera um novo QR Code para a instância.
+        Clientes podem gerar QR codes apenas de suas próprias instâncias.
+        Administradores podem gerar QR codes de qualquer instância.
         """
         instancia = self.get_object()
         

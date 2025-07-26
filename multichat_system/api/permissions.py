@@ -118,3 +118,31 @@ class IsClienteOrAdmin(permissions.BasePermission):
                  (request.user.tipo_usuario == 'admin' or request.user.tipo_usuario == 'cliente')))
 
 
+class IsClienteInstanceOwner(permissions.BasePermission):
+    """
+    Permissão para permitir que clientes atualizem o status de suas próprias instâncias do WhatsApp.
+    Administradores têm acesso total.
+    """
+    def has_permission(self, request, view):
+        return request.user and request.user.is_authenticated and \
+               (request.user.is_superuser or 
+                (hasattr(request.user, 'tipo_usuario') and 
+                 (request.user.tipo_usuario == 'admin' or request.user.tipo_usuario == 'cliente')))
+
+    def has_object_permission(self, request, view, obj):
+        # Superuser tem acesso total
+        if request.user.is_superuser:
+            return True
+
+        # Administradores têm acesso total
+        if hasattr(request.user, 'tipo_usuario') and request.user.tipo_usuario == 'admin':
+            return True
+
+        # Clientes só podem acessar suas próprias instâncias
+        if hasattr(request.user, 'tipo_usuario') and request.user.tipo_usuario == 'cliente':
+            if hasattr(obj, 'cliente') and hasattr(request.user, 'cliente'):
+                return obj.cliente == request.user.cliente
+
+        return False
+
+
