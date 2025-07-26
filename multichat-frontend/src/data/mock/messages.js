@@ -88,7 +88,7 @@ export const mockMessages = [
     type: 'sent',
     tipo: 'audio',
     conteudo: 'Mensagem de áudio',
-    mediaUrl: '/files/audio/mensagem-001.mp3',
+    mediaUrl: '/files/audio.m4a',
     filename: 'mensagem-001.mp3',
     filesize: '850 KB',
     fileType: 'audio/mpeg',
@@ -197,6 +197,64 @@ export const mockMessages = [
   }
 ]
 
+// Sistema de persistência local para favoritas
+const FAVORITES_STORAGE_KEY = 'multichat_favorites'
+const PINNED_STORAGE_KEY = 'multichat_pinned'
+
+// Função para carregar favoritas do localStorage
+const loadFavoritesFromStorage = () => {
+  try {
+    const stored = localStorage.getItem(FAVORITES_STORAGE_KEY)
+    return stored ? JSON.parse(stored) : []
+  } catch (error) {
+    console.error('Erro ao carregar favoritas:', error)
+    return []
+  }
+}
+
+// Função para salvar favoritas no localStorage
+const saveFavoritesToStorage = (favorites) => {
+  try {
+    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(favorites))
+  } catch (error) {
+    console.error('Erro ao salvar favoritas:', error)
+  }
+}
+
+// Função para carregar pins do localStorage
+const loadPinsFromStorage = () => {
+  try {
+    const stored = localStorage.getItem(PINNED_STORAGE_KEY)
+    return stored ? JSON.parse(stored) : []
+  } catch (error) {
+    console.error('Erro ao carregar pins:', error)
+    return []
+  }
+}
+
+// Função para salvar pins no localStorage
+const savePinsToStorage = (pins) => {
+  try {
+    localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify(pins))
+  } catch (error) {
+    console.error('Erro ao salvar pins:', error)
+  }
+}
+
+// Aplicar favoritas e pins salvos às mensagens
+const applyStoredStates = () => {
+  const favorites = loadFavoritesFromStorage()
+  const pins = loadPinsFromStorage()
+  
+  mockMessages.forEach(msg => {
+    msg.isFavorited = favorites.includes(msg.id)
+    msg.isPinned = pins.includes(msg.id)
+  })
+}
+
+// Aplicar estados salvos ao carregar
+applyStoredStates()
+
 // Função para obter mensagens por chat
 export const getMessagesByChat = (chatId) => {
   // Por enquanto retorna todas as mensagens mockadas
@@ -223,6 +281,20 @@ export const togglePinMessage = (messageId) => {
   const msg = mockMessages.find(m => m.id === messageId)
   if (msg) {
     msg.isPinned = !msg.isPinned
+    
+    // Atualizar localStorage
+    const pins = loadPinsFromStorage()
+    if (msg.isPinned) {
+      if (!pins.includes(messageId)) {
+        pins.push(messageId)
+      }
+    } else {
+      const index = pins.indexOf(messageId)
+      if (index > -1) {
+        pins.splice(index, 1)
+      }
+    }
+    savePinsToStorage(pins)
   }
   return msg
 }
@@ -232,6 +304,20 @@ export const toggleFavoriteMessage = (messageId) => {
   const msg = mockMessages.find(m => m.id === messageId)
   if (msg) {
     msg.isFavorited = !msg.isFavorited
+    
+    // Atualizar localStorage
+    const favorites = loadFavoritesFromStorage()
+    if (msg.isFavorited) {
+      if (!favorites.includes(messageId)) {
+        favorites.push(messageId)
+      }
+    } else {
+      const index = favorites.indexOf(messageId)
+      if (index > -1) {
+        favorites.splice(index, 1)
+      }
+    }
+    saveFavoritesToStorage(favorites)
   }
   return msg
 }
@@ -244,6 +330,28 @@ export const getPinnedMessages = () => {
 // Função para obter mensagens favoritas
 export const getFavoritedMessages = () => {
   return mockMessages.filter(m => m.isFavorited)
+}
+
+// Função para obter todas as favoritas (incluindo de outros chats)
+export const getAllFavoritedMessages = () => {
+  const favorites = loadFavoritesFromStorage()
+  return mockMessages.filter(m => favorites.includes(m.id))
+}
+
+// Função para limpar todas as favoritas
+export const clearAllFavorites = () => {
+  mockMessages.forEach(msg => {
+    msg.isFavorited = false
+  })
+  saveFavoritesToStorage([])
+}
+
+// Função para limpar todos os pins
+export const clearAllPins = () => {
+  mockMessages.forEach(msg => {
+    msg.isPinned = false
+  })
+  savePinsToStorage([])
 }
 
 // Função para atualizar status de mensagem

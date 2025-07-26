@@ -4,15 +4,41 @@
 import React, { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Send, Paperclip, Smile, Phone, Video, MoreVertical, User, Users, MessageCircle, Calendar, MapPin, Mail, X, Edit, Ban, Trash2, Archive, VolumeX, Star, Pin, Info, CheckCheck, Play
+  Send,
+  Paperclip,
+  Smile,
+  Phone,
+  Video,
+  MoreVertical,
+  User,
+  Users,
+  MessageCircle,
+  Calendar,
+  MapPin,
+  Mail,
+  X,
+  Edit,
+  Ban,
+  Trash2,
+  Archive,
+  VolumeX,
+  Star,
+  Pin,
+  Heart
 } from 'lucide-react'
 import Message from './Message'
-import { getMessagesByChat } from '../data/mock/messages'
-import { getPinnedMessages } from '../data/mock/messages'
+import { getMessagesByChat, getPinnedMessages, getFavoritedMessages } from '../data/mock/messages'
 import { getAllChats } from '../data/mock/chats'
 import { useAuth } from '../contexts/AuthContext'
 import { useChatUpdates } from '../hooks/use-realtime-updates'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogDescription } from './ui/dialog'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogDescription
+} from './ui/dialog'
 import { Button } from './ui/button'
 import { enviarMensagemWapi } from '../lib/wapi'
 import PropTypes from 'prop-types';
@@ -85,40 +111,29 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
   const { apiRequest, user, isCliente } = useAuth();
   const [showPinsModal, setShowPinsModal] = useState(false)
   const [showImageModal, setShowImageModal] = useState(false)
+  const [showFavoritesModal, setShowFavoritesModal] = useState(false)
+  const [favoritedMessages, setFavoritedMessages] = useState([])
+  const [pinnedMessages, setPinnedMessages] = useState([])
+  
+  // refs para scroll até mensagem
+  const messageRefs = React.useRef({})
+  const [infoModalMessage, setInfoModalMessage] = useState(null)
 
-  // Verificar se chat existe
-  if (!chat) {
-    return (
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center">
-          <MessageCircle className="h-12 w-12 mx-auto mb-4 text-muted-foreground" />
-          <h3 className="text-lg font-semibold text-foreground">Nenhum chat selecionado</h3>
-          <p className="text-muted-foreground">Selecione um chat para começar a conversar</p>
-        </div>
-      </div>
-    )
-  }
-
-  const MESSAGES_PAGE_SIZE = 30;
-
-  function groupMessagesByDate(messages) {
-    return messages.reduce((groups, msg) => {
-      const date = new Date(msg.timestamp).toLocaleDateString('pt-BR');
-      if (!groups[date]) groups[date] = [];
-      groups[date].push(msg);
-      return groups;
-    }, {});
-  }
-
-  // Carregar mensagens quando o chat for selecionado
+  // Carregar mensagens e favoritas
   useEffect(() => {
-    if (chat?.id) {
-      setMessages([])
-      setOffset(0)
-      setHasMore(true)
-      loadMessages(0, true)
-    }
+    const chatMessages = getMessagesByChat(chat?.id)
+    setMessages(chatMessages)
+    setFavoritedMessages(getFavoritedMessages())
+    setPinnedMessages(getPinnedMessages().sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)))
   }, [chat?.id])
+
+  // Atualizar favoritas quando mudar
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setFavoritedMessages(getFavoritedMessages())
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [])
 
   // Função para adicionar nova mensagem em tempo real
   const handleNewMessage = (newMessage) => {
@@ -306,10 +321,6 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     }
   }
   const [replyTo, setReplyTo] = useState(null) // Novo estado para resposta
-  const pinnedMessages = getPinnedMessages().sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)) // Ordem cronológica
-  const [forwardModalMessage, setForwardModalMessage] = useState(null)
-  const [forwardSearch, setForwardSearch] = useState("")
-  const [selectedChats, setSelectedChats] = useState([])
   const allChats = getAllChats()
   const filteredChats = allChats.filter(chat => {
     const name = chat.is_group ? chat.group_name : chat.contact_name
@@ -406,6 +417,7 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
   // Função para scroll até a mensagem
   const scrollToMessage = (id) => {
     setShowPinsModal(false)
+    setShowFavoritesModal(false)
     setTimeout(() => {
       requestAnimationFrame(() => {
         const el = messageRefs.current[id]
@@ -689,6 +701,23 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
           <button className="p-2 hover:bg-accent rounded-lg transition-colors">
             <Video className="h-4 w-4 text-muted-foreground" />
           </button>
+          {/* Botão de favoritas */}
+          <button 
+            className="p-2 hover:bg-yellow-500/20 rounded-lg transition-colors relative" 
+            onClick={() => setShowFavoritesModal(true)} 
+            title="Mensagens favoritas"
+          >
+            <Heart className="h-4 w-4 text-yellow-500" />
+            {favoritedMessages.length > 0 && (
+              <motion.span 
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                className="absolute -top-1 -right-1 bg-yellow-500 text-white rounded-full text-xs px-1.5 py-0.5 font-medium"
+              >
+                {favoritedMessages.length}
+              </motion.span>
+            )}
+          </button>
           {/* Botão de pins */}
           <button className="p-2 hover:bg-primary/20 rounded-lg transition-colors relative" onClick={() => setShowPinsModal(true)} title="Mensagens fixadas">
             <Pin className="h-4 w-4 text-primary" />
@@ -946,6 +975,65 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
           </div>
         </div>
       )}
+
+      {/* Modal de mensagens favoritas */}
+      <Dialog open={showFavoritesModal} onOpenChange={setShowFavoritesModal}>
+        <DialogContent className="w-full h-[90vh] p-0 md:p-8 flex flex-col justify-center items-center">
+          <DialogTitle asChild>
+            <h2 className="text-2xl font-bold text-foreground flex items-center gap-2 mb-2">
+              <Heart className="w-6 h-6 text-yellow-500" /> Mensagens Favoritas
+            </h2>
+          </DialogTitle>
+          <DialogDescription asChild>
+            <p className="text-muted-foreground mb-6">
+              Suas mensagens favoritas nesta conversa. Clique em uma para ir até ela no chat.
+            </p>
+          </DialogDescription>
+          <div className="overflow-y-auto h-full w-full flex flex-col gap-4 px-2 md:px-0">
+            {favoritedMessages.length === 0 ? (
+              <motion.div 
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-center py-12"
+              >
+                <Heart className="w-16 h-16 text-muted-foreground/30 mx-auto mb-4" />
+                <p className="text-muted-foreground text-lg font-medium">Nenhuma mensagem favorita</p>
+                <p className="text-muted-foreground/70 text-sm mt-2">
+                  Toque na estrela ⭐ em qualquer mensagem para favoritá-la
+                </p>
+              </motion.div>
+            ) : (
+              favoritedMessages.map((msg, index) => (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                  whileHover={{ scale: 1.01 }}
+                  className="w-full cursor-pointer hover:bg-accent/50 rounded-lg transition-colors border border-border/50"
+                  onClick={() => scrollToMessage(msg.id)}
+                >
+                  <div className="p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(msg.timestamp).toLocaleDateString('pt-BR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </span>
+                      <Star className="w-4 h-4 text-yellow-500" />
+                    </div>
+                    <Message message={msg} hideMenu />
+                  </div>
+                </motion.div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

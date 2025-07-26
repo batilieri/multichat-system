@@ -12,13 +12,30 @@ import {
   UserCheck,
   Bell,
   HelpCircle,
-  Smartphone
+  Smartphone,
+  Heart,
+  Star
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
+import { useState, useEffect } from 'react'
+import { getAllFavoritedMessages } from '../data/mock/messages'
 
 const Sidebar = ({ collapsed, onToggle }) => {
   const location = useLocation()
   const { isAdmin, isCliente, isColaborador, canCreateUsers, canAccessReports, canAccessSettings, canAccessWhatsApp, canAccessUsers } = useAuth()
+  const [favoritedCount, setFavoritedCount] = useState(0)
+
+  // Atualizar contador de favoritas
+  useEffect(() => {
+    const updateFavoritesCount = () => {
+      const favorites = getAllFavoritedMessages()
+      setFavoritedCount(favorites.length)
+    }
+
+    updateFavoritesCount()
+    const interval = setInterval(updateFavoritesCount, 2000)
+    return () => clearInterval(interval)
+  }, [])
 
   console.log('🔍 Sidebar - isAdmin():', isAdmin());
   console.log('🔍 Sidebar - canAccessReports():', canAccessReports());
@@ -40,6 +57,14 @@ const Sidebar = ({ collapsed, onToggle }) => {
       path: '/chats',
       description: 'Conversas ativas',
       show: true // Todos podem ver os chats
+    },
+    {
+      title: 'Favoritas',
+      icon: Heart,
+      path: '/favoritas',
+      description: `Mensagens favoritas (${favoritedCount})`,
+      show: true, // Todos podem ver favoritas
+      badge: favoritedCount > 0 ? favoritedCount : null
     },
     {
       title: 'WhatsApp',
@@ -153,6 +178,17 @@ const Sidebar = ({ collapsed, onToggle }) => {
                   >
                     <div className="font-medium">{item.title}</div>
                     <div className="text-xs opacity-60">{item.description}</div>
+                  </motion.div>
+                )}
+                
+                {/* Badge para contador */}
+                {item.badge && (
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    className="h-5 w-5 bg-yellow-500 text-white rounded-full text-xs flex items-center justify-center font-medium"
+                  >
+                    {item.badge}
                   </motion.div>
                 )}
               </motion.div>

@@ -87,7 +87,17 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
   }
   const handleFavorite = () => {
     toggleFavoriteMessage(message.id)
-    setIsFavorited((prev) => !prev)
+    const newFavorited = !isFavorited
+    setIsFavorited(newFavorited)
+    
+    // Feedback visual com toast
+    toast({
+      title: newFavorited ? "Mensagem favoritada" : "Favorito removido",
+      description: newFavorited 
+        ? "A mensagem foi adicionada aos seus favoritos" 
+        : "A mensagem foi removida dos favoritos",
+      duration: 2000,
+    })
   }
   const handleForward = () => {
     if (typeof onForward === 'function') onForward(message)
@@ -271,7 +281,15 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
                 title="Mensagem fixada"
               />
             )}
-            {isFavorited && <Star className="w-4 h-4 text-yellow-500" title="Favorita" />}
+            {isFavorited && (
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                className="flex items-center justify-center"
+              >
+                <Star className="w-4 h-4 text-yellow-500" title="Favorita" />
+              </motion.div>
+            )}
             {/* Botão de reações */}
             <Popover open={showReactionPopover} onOpenChange={open => {
               setShowReactionPopover(open)

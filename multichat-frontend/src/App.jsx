@@ -13,6 +13,7 @@ import WhatsappInstances from './components/WhatsappInstances'
 import Settings from './components/Settings'
 import Login from './components/Login'
 import Relatorios from './components/Relatorios'
+import Favoritas from './components/Favoritas'
 
 // Context
 import { AuthProvider, useAuth } from './contexts/AuthContext'
@@ -95,6 +96,7 @@ function AppLayout() {
                 </div>
               } 
             />
+            <Route path="/favoritas" element={<Favoritas />} />
             <Route 
               path="/usuarios" 
               element={
