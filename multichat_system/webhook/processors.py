@@ -11,7 +11,7 @@ from django.utils import timezone as django_timezone
 
 from core.models import Cliente, Chat as CoreChat, Mensagem as CoreMensagem
 from .models import (
-    WebhookEvent, Chat, WebhookSender as Sender, WebhookMessage as Message,
+    WebhookEvent, Chat, Sender, Message,
     MessageMedia, MessageStats, ContactStats, RealTimeStats
 )
 from .media_downloader import processar_midias_automaticamente
@@ -760,14 +760,37 @@ class WhatsAppWebhookProcessor:
                 
                 # Criar mensagem usando core.Mensagem (apenas se não existir)
                 if message_id and text_content and not CoreMensagem.objects.filter(message_id=message_id).exists():
+                    # Buscar ou criar chat no modelo core.Chat
+                    core_chat, created = CoreChat.objects.get_or_create(
+                        chat_id=chat_id,
+                        cliente=self.cliente,
+                        defaults={
+                            'chat_name': sender_name or sender_id or "desconhecido",
+                            'is_group': is_group,
+                            'canal': 'whatsapp',
+                            'status': 'ativo',
+                            'last_message_at': django_timezone.now(),
+                            'foto_perfil': profile_picture
+                        }
+                    )
+                    
+                    # Atualizar chat se já existia
+                    if not created:
+                        core_chat.chat_name = sender_name or sender_id or "desconhecido"
+                        core_chat.last_message_at = django_timezone.now()
+                        if profile_picture:
+                            core_chat.foto_perfil = profile_picture
+                        core_chat.save()
+                    
                     CoreMensagem.objects.create(
-                        chat=chat,
+                        chat=core_chat,  # Agora usando o chat do modelo core.Chat
                         remetente=sender_name or sender_id or "desconhecido",
                         conteudo=text_content,
                         tipo=message_type,
                         lida=False,
-                        from_me=from_me,  # Adicionar campo from_me
-                        message_id=message_id  # Adicionar message_id para evitar duplicatas
+                        from_me=from_me,
+                        message_id=message_id,
+                        data_envio=django_timezone.now()
                     )
                     logger.info(f"[FALLBACK] ✅ Mensagem criada com sucesso: {message_id}")
                 else:
@@ -802,8 +825,8 @@ class WhatsAppWebhookProcessor:
                 chat.status = 'active'
                 chat.last_message_at = django_timezone.now()
                 # Atualizar foto de perfil se uma nova foi fornecida
-                if profile_picture and chat.foto_perfil != profile_picture:
-                    chat.foto_perfil = profile_picture
+                if profile_picture and chat.profile_picture != profile_picture:
+                    chat.profile_picture = profile_picture
                 chat.save()
                 logger.info(f"[FALLBACK] Chat existente atualizado: {chat.chat_id} - Foto: {profile_picture}")
                 return chat
@@ -814,10 +837,9 @@ class WhatsAppWebhookProcessor:
                     cliente=self.cliente,
                     chat_name=safe_chat_name,
                     is_group=is_group,
-                    canal='whatsapp',
                     status='active',
                     last_message_at=django_timezone.now(),
-                    foto_perfil=profile_picture  # Incluir foto de perfil na criação
+                    profile_picture=profile_picture  # Usar profile_picture em vez de foto_perfil
                 )
                 logger.info(f"[FALLBACK] Chat criado: {chat.chat_id} - Foto: {profile_picture}")
                 return chat

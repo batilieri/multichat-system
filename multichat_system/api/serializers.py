@@ -256,12 +256,13 @@ class MensagemSerializer(serializers.ModelSerializer):
     """
     tipo = serializers.SerializerMethodField()
     fromMe = serializers.BooleanField(source='from_me', read_only=True)  # Campo para o frontend
+    from_me = serializers.BooleanField(read_only=True)  # Campo adicional para compatibilidade
     sender_display_name = serializers.SerializerMethodField()  # Nome do remetente em grupos
 
     class Meta:
         model = Mensagem
         fields = [
-            "id", "chat", "remetente", "conteudo", "data_envio", "tipo", "lida", "fromMe",
+            "id", "chat", "remetente", "conteudo", "data_envio", "tipo", "lida", "fromMe", "from_me",
             "sender_display_name", "sender_push_name", "sender_verified_name"
         ]
         read_only_fields = ["data_envio"]
