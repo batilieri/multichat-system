@@ -19,7 +19,8 @@ import {
   Pin,
   Star,
   Trash2,
-  Megaphone
+  Megaphone,
+  Pencil
 } from 'lucide-react'
 import EmojiBadge from './EmojiBadge'
 import { Popover, PopoverTrigger, PopoverContent } from './ui/popover'
@@ -142,8 +143,72 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
   const handleReport = () => {
     setShowReportModal(true)
   }
-  const handleDelete = () => {
-    setIsDeleted(true)
+  const handleEdit = async () => {
+    console.log('✏️ Editando mensagem ID:', message.id)
+    
+    // Verificar se a mensagem pode ser editada (apenas mensagens de texto)
+    if (message.type !== 'texto' && message.type !== 'text') {
+      toast({
+        title: "Não é possível editar",
+        description: "Apenas mensagens de texto podem ser editadas",
+        duration: 3000,
+      })
+      return
+    }
+    
+    // TODO: Implementar modal de edição
+    // Por enquanto, apenas mostrar o ID
+    toast({
+      title: "Editar mensagem",
+      description: `Editando mensagem ID: ${message.id}`,
+      duration: 2000,
+    })
+  }
+  
+  const handleDelete = async () => {
+    console.log('🗑️ Excluindo mensagem ID:', message.id)
+    
+    // Confirmar exclusão
+    if (!window.confirm('Tem certeza que deseja excluir esta mensagem?')) {
+      return
+    }
+    
+    try {
+      // TODO: Implementar chamada à API para excluir mensagem
+      // const response = await fetch(`/api/mensagens/${message.id}/`, {
+      //   method: 'DELETE',
+      //   headers: {
+      //     'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+      //     'Content-Type': 'application/json',
+      //   },
+      // })
+      
+      // if (response.ok) {
+      //   setIsDeleted(true)
+      //   toast({
+      //     title: "Mensagem excluída",
+      //     description: "A mensagem foi excluída com sucesso",
+      //     duration: 2000,
+      //   })
+      // } else {
+      //   throw new Error('Erro ao excluir mensagem')
+      // }
+      
+      // Por enquanto, apenas simular exclusão
+      setIsDeleted(true)
+      toast({
+        title: "Mensagem excluída",
+        description: `Mensagem ID: ${message.id} excluída com sucesso`,
+        duration: 2000,
+      })
+    } catch (error) {
+      console.error('Erro ao excluir mensagem:', error)
+      toast({
+        title: "Erro ao excluir",
+        description: "Não foi possível excluir a mensagem",
+        duration: 3000,
+      })
+    }
   }
   if (isDeleted) return null
 
@@ -402,6 +467,12 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
                     </DropdownMenuItem>
                   )}
                   <DropdownMenuSeparator />
+                  {/* Editar - só para mensagens do usuário */}
+                  {isMe && (
+                    <DropdownMenuItem onClick={handleEdit}>
+                      <Pencil className="w-4 h-4 mr-2" /> Editar
+                    </DropdownMenuItem>
+                  )}
                   {/* Apagar - sempre, destructive */}
                   <DropdownMenuItem variant="destructive" onClick={handleDelete}>
                     <Trash2 className="w-4 h-4 mr-2" /> Apagar
@@ -576,23 +647,40 @@ const AudioPlayer = ({ message }) => {
 
 // Função utilitária para renderizar texto com emojis usando o componente Emoji
 function renderTextWithEmojis(text) {
-  text = typeof text === 'string' ? text : (text ? String(text) : '');
-  const regex = EmojiRegex()
-  const parts = []
-  let lastIndex = 0
-  for (const match of text.matchAll(regex)) {
-    const emoji = match[0]
-    const index = match.index
-    if (index > lastIndex) {
-      parts.push(text.slice(lastIndex, index))
+  // Simplificar para evitar problemas com emojis
+  if (!text) return '';
+  text = typeof text === 'string' ? text : String(text);
+  
+  // Se o texto contém apenas caracteres simples, retornar diretamente
+  if (/^[a-zA-Z0-9\s.,!?;:()\-_@#$%&*+=<>[\]{}|\\/"'`~]+$/.test(text)) {
+    return text;
+  }
+  
+  // Para textos com emojis, usar regex mais simples
+  try {
+    const regex = EmojiRegex();
+    const parts = [];
+    let lastIndex = 0;
+    
+    for (const match of text.matchAll(regex)) {
+      const emoji = match[0];
+      const index = match.index;
+      if (index > lastIndex) {
+        parts.push(text.slice(lastIndex, index));
+      }
+      parts.push(<Emoji key={index}>{emoji}</Emoji>);
+      lastIndex = index + emoji.length;
     }
-    parts.push(<Emoji key={index}>{emoji}</Emoji>)
-    lastIndex = index + emoji.length
+    
+    if (lastIndex < text.length) {
+      parts.push(text.slice(lastIndex));
+    }
+    
+    return parts;
+  } catch (error) {
+    console.warn('Erro ao processar emojis:', error);
+    return text; // Fallback para texto simples
   }
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex))
-  }
-  return parts
 }
 
 function renderMessageContent(message) {

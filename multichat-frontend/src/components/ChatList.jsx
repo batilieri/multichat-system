@@ -21,72 +21,7 @@ const ChatList = ({ selectedChat, onSelectChat }) => {
   const { apiRequest } = useAuth()
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false)
 
-  // Dados mock para desenvolvimento
-  const mockChats = [
-    {
-      id: 1,
-      chat_id: '5511999999999',
-      is_group: false,
-      group_name: null,
-      profile_picture: null,
-      ultima_mensagem: {
-        tipo: 'text',
-        conteudo: 'Olá, preciso de ajuda com meu pedido',
-        data: '2025-07-10T15:30:00Z'
-      },
-      atribuicao_atual: {
-        status: 'aguardando',
-        prioridade: 'normal',
-        usuario: null,
-        departamento: 'Suporte'
-      },
-      total_mensagens: 3,
-      sender_name: 'João Silva',
-      unread_count: 2
-    },
-    {
-      id: 2,
-      chat_id: '5511888888888',
-      is_group: false,
-      group_name: null,
-      profile_picture: null,
-      ultima_mensagem: {
-        tipo: 'text',
-        conteudo: 'Obrigado pelo atendimento!',
-        data: '2025-07-10T14:45:00Z'
-      },
-      atribuicao_atual: {
-        status: 'resolvido',
-        prioridade: 'normal',
-        usuario: 'Maria Santos',
-        departamento: 'Vendas'
-      },
-      total_mensagens: 8,
-      sender_name: 'Ana Costa',
-      unread_count: 0
-    },
-    {
-      id: 3,
-      chat_id: '5511777777777-group',
-      is_group: true,
-      group_name: 'Suporte Técnico',
-      profile_picture: null,
-      ultima_mensagem: {
-        tipo: 'image',
-        conteudo: '[Imagem]',
-        data: '2025-07-10T16:15:00Z'
-      },
-      atribuicao_atual: {
-        status: 'em_andamento',
-        prioridade: 'alta',
-        usuario: 'Pedro Costa',
-        departamento: 'Técnico'
-      },
-      total_mensagens: 15,
-      sender_name: 'Grupo Suporte',
-      unread_count: 1
-    }
-  ]
+  // Removido dados mockados - usando apenas dados reais da API
 
   useEffect(() => {
     loadChats()

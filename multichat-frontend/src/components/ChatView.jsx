@@ -28,8 +28,6 @@ import {
 } from 'lucide-react'
 import Message from './Message'
 import EmojiPicker from './EmojiPicker'
-import { getMessagesByChat, getPinnedMessages, getFavoritedMessages } from '../data/mock/messages'
-import { getAllChats } from '../data/mock/chats'
 import { useAuth } from '../contexts/AuthContext'
 import { useChatUpdates } from '../hooks/use-realtime-updates'
 import {
@@ -45,6 +43,9 @@ import { enviarMensagemWapi } from '../lib/wapi'
 import PropTypes from 'prop-types';
 
 const ChatView = ({ chat, instances = [], clients = [] }) => {
+  // Constantes
+  const MESSAGES_PAGE_SIZE = 50; // Número de mensagens por página
+  
   // Estados para dados carregados internamente
   const [internalClients, setInternalClients] = useState([]);
   const [internalInstances, setInternalInstances] = useState([]);
@@ -127,20 +128,22 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
   const messageRefs = React.useRef({})
   const [infoModalMessage, setInfoModalMessage] = useState(null)
 
-  // Carregar mensagens e favoritas
+  // Carregar mensagens reais da API
   useEffect(() => {
-    const chatMessages = getMessagesByChat(chat?.id)
-    setMessages(chatMessages)
-    setFavoritedMessages(getFavoritedMessages())
-    setPinnedMessages(getPinnedMessages().sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)))
-  }, [chat?.id])
+    console.log('🔄 useEffect - chat mudou:', chat?.chat_id)
+    if (chat?.chat_id) {
+      console.log('📱 Carregando mensagens para chat:', chat.chat_id)
+      loadMessages(0, true) // Carregar mensagens e scroll para o final
+    } else {
+      console.log('❌ Chat ID não encontrado')
+    }
+  }, [chat?.chat_id])
 
-  // Atualizar favoritas quando mudar
+  // Carregar favoritas e mensagens fixadas da API (implementar quando necessário)
   useEffect(() => {
-    const interval = setInterval(() => {
-      setFavoritedMessages(getFavoritedMessages())
-    }, 1000)
-    return () => clearInterval(interval)
+    // TODO: Implementar carregamento de favoritas e mensagens fixadas da API
+    setFavoritedMessages([])
+    setPinnedMessages([])
   }, [])
 
   // Fechar emoji picker quando clicar fora
@@ -254,24 +257,66 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
 
 
   const loadMessages = async (offsetValue = 0, scrollToBottom = false) => {
-    if (!chat?.id) return
+    if (!chat?.chat_id) {
+      console.log('❌ Chat ID não encontrado:', chat)
+      return
+    }
     try {
       setLoading(true)
+      console.log('🔍 Carregando mensagens para chat:', chat.chat_id)
       const response = await apiRequest(`/api/mensagens/?chat_id=${chat.chat_id}&limit=${MESSAGES_PAGE_SIZE}&offset=${offsetValue}`)
       if (!response.ok) throw new Error('Erro na resposta da API')
       const data = await response.json()
+      console.log('📨 Dados recebidos da API:', data)
       
       // Transformar dados do backend para o formato esperado pelo frontend
-      const newMessages = (data.results || data).map(msg => ({
-        id: msg.id,
-        type: msg.tipo,
-        content: msg.conteudo,
-        timestamp: msg.data_envio,
-        sender: msg.remetente,
-        isOwn: msg.fromMe, // Corrigido: agora usa o campo correto do backend
-        status: msg.lida ? 'read' : 'sent',
-        replyTo: null,
-        forwarded: false,
+      const newMessages = (data.results || data).map((msg, index) => {
+        console.log(`📝 Processando mensagem ${index}:`, msg)
+        
+        // Verificar se a mensagem tem dados válidos
+        if (!msg.id) {
+          console.warn('⚠️ Mensagem sem ID:', msg)
+        }
+        if (!msg.conteudo && !msg.content) {
+          console.warn('⚠️ Mensagem sem conteúdo:', msg)
+        }
+        
+        // Verificar se o conteúdo é JSON válido
+        let conteudoProcessado = msg.conteudo || msg.content || ''
+        if (typeof conteudoProcessado === 'string' && conteudoProcessado.startsWith('{')) {
+          try {
+            const jsonContent = JSON.parse(conteudoProcessado)
+            console.log('📄 Conteúdo JSON detectado:', jsonContent)
+            // Para mensagens JSON, usar uma representação mais amigável
+            if (jsonContent.textMessage) {
+              conteudoProcessado = jsonContent.textMessage.text || 'Mensagem de texto'
+            } else if (jsonContent.imageMessage) {
+              conteudoProcessado = '[Imagem]'
+            } else if (jsonContent.audioMessage) {
+              conteudoProcessado = '[Áudio]'
+            } else if (jsonContent.videoMessage) {
+              conteudoProcessado = '[Vídeo]'
+            } else if (jsonContent.documentMessage) {
+              conteudoProcessado = '[Documento]'
+            } else {
+              conteudoProcessado = '[Mídia]'
+            }
+          } catch (error) {
+            console.warn('⚠️ Erro ao processar JSON:', error)
+            conteudoProcessado = '[Conteúdo inválido]'
+          }
+        }
+        
+        const transformedMessage = {
+          id: msg.id,
+          type: msg.tipo,
+          content: conteudoProcessado,
+          timestamp: msg.data_envio,
+          sender: msg.remetente,
+          isOwn: msg.fromMe || msg.from_me, // Usar ambos os campos para compatibilidade
+          status: msg.lida ? 'read' : 'sent',
+          replyTo: null,
+          forwarded: false,
         // Campos detalhados de mídia (snake_case -> camelCase)
         mediaUrl: msg.media_url,
         mediaType: msg.media_type,
@@ -308,15 +353,30 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
         thumbnailEncSha256: msg.thumbnail_enc_sha256,
         thumbnailHeight: msg.thumbnail_height,
         thumbnailWidth: msg.thumbnail_width
-      }))
+        }
+        
+        // Log para verificar se o ID está sendo preservado
+        console.log(`📝 Mensagem transformada ${index}: ID=${transformedMessage.id}, Tipo=${transformedMessage.type}`)
+        
+        return transformedMessage
+      })
+      
+      console.log('📝 Mensagens transformadas:', newMessages.length)
       
       // Remover duplicatas baseado no ID da mensagem
-      const uniqueMessages = newMessages.filter((msg, index, self) => 
-        index === self.findIndex(m => m.id === msg.id)
-      )
+      const uniqueMessages = newMessages.filter((msg, index, self) => {
+        const isDuplicate = index !== self.findIndex(m => m.id === msg.id)
+        if (isDuplicate) {
+          console.log('🚫 Removendo duplicata:', msg.id, msg.content?.substring(0, 50))
+        }
+        return !isDuplicate
+      })
       
       // Inverter a ordem para exibir de baixo para cima (mais antigas no topo)
       const reversedMessages = [...uniqueMessages].reverse()
+      
+      console.log('📝 Mensagens únicas:', uniqueMessages.length)
+      console.log('📝 Mensagens finais:', reversedMessages.length)
       
       if (offsetValue === 0) {
         setMessages(reversedMessages)
@@ -476,19 +536,25 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
 
   // Função para agrupar mensagens por data
   const groupMessagesByDate = (messages) => {
+    console.log('📅 Agrupando mensagens:', messages.length)
     const groups = {}
     messages.forEach(msg => {
-      const date = new Date(msg.timestamp).toLocaleDateString('pt-BR', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      })
-      if (!groups[date]) {
-        groups[date] = []
+      try {
+        const date = new Date(msg.timestamp).toLocaleDateString('pt-BR', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        })
+        if (!groups[date]) {
+          groups[date] = []
+        }
+        groups[date].push(msg)
+      } catch (error) {
+        console.error('❌ Erro ao processar data da mensagem:', error, msg)
       }
-      groups[date].push(msg)
     })
+    console.log('📅 Grupos criados:', Object.keys(groups).length)
     return groups
   }
 
@@ -787,6 +853,7 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
 
       {/* Área de mensagens */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 w-full messages-container" onScroll={handleScroll}>
+        {console.log('🎨 Renderizando mensagens:', messages.length, 'loading:', loading)}
         {!loading && Object.entries(groupMessagesByDate(messages)).map(([date, msgs]) => (
           <div key={date} className="w-full">
             <div className="flex justify-center my-2">
