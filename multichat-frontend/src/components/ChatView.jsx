@@ -470,6 +470,7 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
 
   // Função para lidar com seleção de emoji
   const handleEmojiSelect = (emoji) => {
+    // Adicionar emoji à mensagem (pode adicionar quantos quiser)
     setMessage(prev => prev + emoji)
   }
 

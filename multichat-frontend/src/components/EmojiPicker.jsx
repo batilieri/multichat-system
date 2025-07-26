@@ -43,7 +43,7 @@ export default function EmojiPicker({ onSelect, onClose, searchEnabled = true })
   const [activeCategory, setActiveCategory] = useState(categoryMeta[0].key)
   const [page, setPage] = useState(0)
   const [recent, setRecent] = useState([])
-  const EMOJIS_PER_PAGE = 64 // 8x8 grid para melhor organização
+  const EMOJIS_PER_PAGE = 72 // 8x9 grid para aproveitar melhor o espaço reduzido
 
   // Carregar recentes ao abrir
   useEffect(() => {
@@ -88,7 +88,7 @@ export default function EmojiPicker({ onSelect, onClose, searchEnabled = true })
   function handleSelect(emoji) {
     if (activeCategory !== 'recent') addRecentEmoji(emoji)
     onSelect?.(emoji)
-    onClose?.()
+    // Não fechar automaticamente para permitir múltiplos cliques
   }
 
   return (
@@ -122,7 +122,7 @@ export default function EmojiPicker({ onSelect, onClose, searchEnabled = true })
         </div>
       )}
       {/* Grid de emojis */}
-      <div className="grid grid-cols-8 gap-1.5 flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-accent/40 scrollbar-track-transparent p-1">
+      <div className="grid grid-cols-8 gap-1 flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-accent/40 scrollbar-track-transparent p-1">
         {paginated.length === 0 && (
           <span className="col-span-8 text-center text-muted-foreground text-sm py-8">
             {activeCategory === 'recent' ? 'Nenhum emoji recente' : 'Nenhum emoji encontrado'}
@@ -131,7 +131,7 @@ export default function EmojiPicker({ onSelect, onClose, searchEnabled = true })
         {paginated.map((emoji, i) => (
           <button
             key={i}
-            className="text-xl p-1.5 rounded-md hover:bg-accent/60 focus:bg-accent/60 transition-all duration-200 hover:scale-105 transform active:scale-95"
+            className="text-lg p-1 rounded-md hover:bg-accent/60 focus:bg-accent/60 transition-all duration-200 hover:scale-105 transform active:scale-95"
             onClick={() => handleSelect(emoji.emoji)}
             type="button"
             tabIndex={0}
