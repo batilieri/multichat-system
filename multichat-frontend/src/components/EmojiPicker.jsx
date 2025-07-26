@@ -43,7 +43,7 @@ export default function EmojiPicker({ onSelect, onClose, searchEnabled = true })
   const [activeCategory, setActiveCategory] = useState(categoryMeta[0].key)
   const [page, setPage] = useState(0)
   const [recent, setRecent] = useState([])
-  const EMOJIS_PER_PAGE = 56 // 7x8 grid
+  const EMOJIS_PER_PAGE = 81 // 9x9 grid para aproveitar melhor o espaço
 
   // Carregar recentes ao abrir
   useEffect(() => {
@@ -92,13 +92,13 @@ export default function EmojiPicker({ onSelect, onClose, searchEnabled = true })
   }
 
   return (
-    <div className="w-80 bg-background text-foreground p-3 flex flex-col gap-2 animate-in fade-in-0 zoom-in-95">
+    <div className="w-96 h-96 bg-background text-foreground border border-border rounded-lg shadow-2xl p-4 flex flex-col gap-3 animate-in fade-in-0 zoom-in-95">
       {/* Barra de categorias */}
-      <div className="flex gap-1 mb-2 overflow-x-auto">
+      <div className="flex gap-1 mb-3 overflow-x-auto border-b border-border pb-2">
         {categoryMeta.map(cat => (
           <button
             key={cat.key}
-            className={`flex-1 flex flex-col items-center justify-center p-1 rounded-md hover:bg-accent transition-colors text-lg ${activeCategory === cat.key ? 'bg-accent' : ''}`}
+            className={`flex-1 flex flex-col items-center justify-center p-2 rounded-lg hover:bg-accent transition-colors text-xl ${activeCategory === cat.key ? 'bg-accent text-primary' : 'text-muted-foreground'}`}
             onClick={() => setActiveCategory(cat.key)}
             title={cat.label}
             type="button"
@@ -111,24 +111,24 @@ export default function EmojiPicker({ onSelect, onClose, searchEnabled = true })
       {searchEnabled && activeCategory !== 'recent' && (
         <input
           type="text"
-          className="w-full px-3 py-2 rounded-md border border-border bg-input text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-primary"
-          placeholder="Buscar emoji..."
+          className="w-full px-3 py-2 rounded-lg border border-border bg-input text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+          placeholder="🔍 Buscar emoji..."
           value={search}
           onChange={e => setSearch(e.target.value)}
           aria-label="Buscar emoji"
         />
       )}
       {/* Grid de emojis */}
-      <div className="grid grid-cols-8 gap-1 max-h-56 overflow-y-auto scrollbar-thin scrollbar-thumb-accent/40 scrollbar-track-transparent">
+      <div className="grid grid-cols-9 gap-2 flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-accent/40 scrollbar-track-transparent">
         {paginated.length === 0 && (
-          <span className="col-span-8 text-center text-muted-foreground text-xs py-4">
+          <span className="col-span-9 text-center text-muted-foreground text-sm py-8">
             {activeCategory === 'recent' ? 'Nenhum emoji recente' : 'Nenhum emoji encontrado'}
           </span>
         )}
         {paginated.map((emoji, i) => (
           <button
             key={i}
-            className="text-xl p-1 rounded hover:bg-accent focus:bg-accent transition-colors"
+            className="text-2xl p-2 rounded-lg hover:bg-accent focus:bg-accent transition-colors hover:scale-110 transform"
             onClick={() => handleSelect(emoji.emoji)}
             type="button"
             tabIndex={0}
@@ -140,21 +140,23 @@ export default function EmojiPicker({ onSelect, onClose, searchEnabled = true })
       </div>
       {/* Paginação */}
       {emojis.length > EMOJIS_PER_PAGE && (
-        <div className="flex justify-center gap-2 mt-2">
+        <div className="flex justify-center gap-3 mt-3 pt-2 border-t border-border">
           <button
-            className="px-2 py-1 rounded bg-accent text-xs disabled:opacity-50"
+            className="px-3 py-1 rounded-lg bg-accent text-sm disabled:opacity-50 hover:bg-accent/80 transition-colors"
             onClick={() => setPage(p => Math.max(0, p - 1))}
             disabled={page === 0}
           >
-            Anterior
+            ← Anterior
           </button>
-          <span className="text-xs text-muted-foreground self-center">{page + 1} / {Math.ceil(emojis.length / EMOJIS_PER_PAGE)}</span>
+          <span className="text-sm text-muted-foreground self-center px-3 py-1 bg-muted rounded-lg">
+            {page + 1} / {Math.ceil(emojis.length / EMOJIS_PER_PAGE)}
+          </span>
           <button
-            className="px-2 py-1 rounded bg-accent text-xs disabled:opacity-50"
+            className="px-3 py-1 rounded-lg bg-accent text-sm disabled:opacity-50 hover:bg-accent/80 transition-colors"
             onClick={() => setPage(p => Math.min(Math.ceil(emojis.length / EMOJIS_PER_PAGE) - 1, p + 1))}
             disabled={page >= Math.ceil(emojis.length / EMOJIS_PER_PAGE) - 1}
           >
-            Próxima
+            Próxima →
           </button>
         </div>
       )}

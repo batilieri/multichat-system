@@ -835,6 +835,13 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
             <Paperclip className="h-5 w-5 text-muted-foreground" />
           </button>
           
+          <button 
+            className="p-2 hover:bg-accent rounded-lg transition-colors"
+            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+          >
+            <Smile className="h-5 w-5 text-muted-foreground" />
+          </button>
+          
           <div className="flex-1 relative">
             <input
               type="text"
@@ -847,7 +854,7 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
             
             {/* Emoji Picker */}
             {showEmojiPicker && (
-              <div className="absolute bottom-full right-0 mb-2 z-50 emoji-picker-container">
+              <div className="absolute bottom-full left-0 mb-2 z-50 emoji-picker-container">
                 <EmojiPicker
                   onSelect={handleEmojiSelect}
                   onClose={() => setShowEmojiPicker(false)}
@@ -855,13 +862,6 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
               </div>
             )}
           </div>
-
-          <button 
-            className="p-2 hover:bg-accent rounded-lg transition-colors"
-            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-          >
-            <Smile className="h-5 w-5 text-muted-foreground" />
-          </button>
 
           <motion.button
             whileHover={{ scale: 1.05 }}
