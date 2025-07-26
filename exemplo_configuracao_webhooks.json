@@ -1,0 +1,93 @@
+{
+  "webhook_configuration": {
+    "instance_id": "sua_instancia_123",
+    "token": "seu_token_wapi_aqui",
+    "base_url": "https://ac70b57623e8.ngrok-free.app",
+    "wapi_url": "https://api.w-api.app",
+    "webhooks": {
+      "connection": "https://meulink.com/webhook/connect/",
+      "disconnection": "https://meulink.com/webhook/disconnect/",
+      "send_message": "https://ac70b57623e8.ngrok-free.app/webhook/send-message/",
+      "receive_message": "https://ac70b57623e8.ngrok-free.app/webhook/receive-message/",
+      "chat_presence": "https://meulink.com/webhook/chat-presence/",
+      "message_status": "https://ac70b57623e8.ngrok-free.app/webhook/message-status/",
+      "fallback": "https://ac70b57623e8.ngrok-free.app/webhook/"
+    }
+  },
+  "test_payloads": {
+    "connection": {
+      "instanceId": "sua_instancia_123",
+      "event": "connection",
+      "status": "connected",
+      "timestamp": "2025-01-15T10:30:00Z"
+    },
+    "disconnection": {
+      "instanceId": "sua_instancia_123",
+      "event": "disconnection",
+      "status": "disconnected",
+      "timestamp": "2025-01-15T10:35:00Z"
+    },
+    "send_message": {
+      "instanceId": "sua_instancia_123",
+      "event": "message",
+      "fromMe": true,
+      "messageId": "msg_456",
+      "sender": {
+        "id": "5511999999999@c.us",
+        "name": "Cliente Nome"
+      },
+      "chat": {
+        "id": "5511888888888@c.us",
+        "name": "Contato Destino"
+      },
+      "msgContent": {
+        "type": "text",
+        "text": "Olá, como posso ajudar?"
+      },
+      "timestamp": "2025-01-15T10:30:00Z"
+    },
+    "receive_message": {
+      "instanceId": "sua_instancia_123",
+      "event": "message",
+      "fromMe": false,
+      "messageId": "msg_789",
+      "sender": {
+        "id": "5511888888888@c.us",
+        "name": "Contato Nome"
+      },
+      "chat": {
+        "id": "5511888888888@c.us",
+        "name": "Contato Nome"
+      },
+      "msgContent": {
+        "type": "text",
+        "text": "Preciso de ajuda!"
+      },
+      "timestamp": "2025-01-15T10:31:00Z"
+    },
+    "chat_presence": {
+      "instanceId": "sua_instancia_123",
+      "event": "presence",
+      "chatId": "5511888888888@c.us",
+      "presence": "composing",
+      "timestamp": "2025-01-15T10:32:00Z"
+    },
+    "message_status": {
+      "instanceId": "sua_instancia_123",
+      "event": "message_status",
+      "messageId": "msg_456",
+      "status": "delivered",
+      "timestamp": "2025-01-15T10:33:00Z"
+    }
+  },
+  "curl_examples": {
+    "configure_webhooks": "curl -X POST \"https://api.w-api.app/webhook/set\" -H \"Content-Type: application/json\" -H \"Authorization: Bearer SEU_TOKEN\" -d '{\"instanceId\": \"sua_instancia_123\", \"webhooks\": {\"connection\": \"https://meulink.com/webhook/connect/\", \"disconnection\": \"https://meulink.com/webhook/disconnect/\", \"send_message\": \"https://ac70b57623e8.ngrok-free.app/webhook/send-message/\", \"receive_message\": \"https://ac70b57623e8.ngrok-free.app/webhook/receive-message/\", \"chat_presence\": \"https://meulink.com/webhook/chat-presence/\", \"message_status\": \"https://ac70b57623e8.ngrok-free.app/webhook/message-status/\"}}'",
+    "test_connection": "curl -X POST \"https://meulink.com/webhook/connect/\" -H \"Content-Type: application/json\" -d '{\"instanceId\": \"test_instance\", \"event\": \"connection\", \"status\": \"connected\"}'",
+    "test_send_message": "curl -X POST \"https://ac70b57623e8.ngrok-free.app/webhook/send-message/\" -H \"Content-Type: application/json\" -d '{\"instanceId\": \"test_instance\", \"event\": \"message\", \"fromMe\": true, \"messageId\": \"test_msg_123\", \"sender\": {\"id\": \"5511999999999@c.us\", \"name\": \"Teste\"}, \"msgContent\": {\"type\": \"text\", \"text\": \"Teste de mensagem\"}}'"
+  },
+  "python_script_usage": {
+    "basic": "python configurar_webhooks_wapi.py --instance-id sua_instancia_123 --token seu_token_wapi_aqui",
+    "with_test": "python configurar_webhooks_wapi.py --instance-id sua_instancia_123 --token seu_token_wapi_aqui --test",
+    "custom_base_url": "python configurar_webhooks_wapi.py --instance-id sua_instancia_123 --token seu_token_wapi_aqui --base-url https://seu-dominio.com"
+  }
+} 
