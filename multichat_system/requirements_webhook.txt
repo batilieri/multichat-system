@@ -1,0 +1,18 @@
+# Dependências para o sistema de webhook MultiChat
+# Baseado na estrutura do betZap
+
+# Flask para servidor webhook local
+Flask==2.3.3
+
+# PyNgrok para túnel público
+pyngrok==6.1.0
+
+# Requests para testes
+requests==2.31.0
+
+# Dependências adicionais para processamento
+python-dateutil==2.8.2
+
+# Para desenvolvimento e testes
+pytest==7.4.3
+pytest-django==4.7.0 

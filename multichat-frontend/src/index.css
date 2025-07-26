@@ -1,0 +1,89 @@
+@import "tailwindcss";
+
+/* Configurações globais para scroll responsivo */
+html {
+  scroll-behavior: smooth;
+  overflow-x: hidden;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+}
+
+/* Scroll personalizado para webkit browsers */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(156, 163, 175, 0.5);
+  border-radius: 4px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(156, 163, 175, 0.8);
+}
+
+/* Scroll para modo escuro */
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(75, 85, 99, 0.5);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(75, 85, 99, 0.8);
+}
+
+/* Garantir que elementos com overflow tenham scroll suave */
+.overflow-y-auto,
+.overflow-auto {
+  scroll-behavior: smooth;
+}
+
+/* Responsividade para diferentes tamanhos de tela */
+@media (max-width: 768px) {
+  .ml-70 {
+    margin-left: 5rem; /* 80px */
+  }
+  
+  .ml-20 {
+    margin-left: 5rem; /* 80px */
+  }
+}
+
+@media (max-width: 640px) {
+  .ml-70,
+  .ml-20 {
+    margin-left: 0;
+  }
+}
+
+/* Animações suaves para transições */
+* {
+  transition: margin-left 0.3s ease, width 0.3s ease;
+}
+
+/* Garantir que o conteúdo principal tenha altura mínima */
+#root {
+  min-height: 100vh;
+}
+
+/* Melhorar a experiência de scroll em dispositivos móveis */
+@media (hover: none) and (pointer: coarse) {
+  .overflow-y-auto,
+  .overflow-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+}

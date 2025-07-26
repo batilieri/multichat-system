@@ -1,0 +1,17 @@
+# Configurações do Django
+SECRET_KEY=django-insecure-dev-key-change-in-production
+DEBUG=True
+
+# Configurações do Banco de Dados (SQLite para desenvolvimento)
+# Para MySQL, descomente e configure:
+# DB_NAME=multichat_db
+# DB_USER=batiliere
+# DB_PASSWORD=OnE%1330
+# DB_HOST=localhost
+# DB_PORT=3306
+
+# Configurações da API
+ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
+
+# Configurações de Log
+LOG_LEVEL=DEBUG 
