@@ -941,7 +941,20 @@ class MensagemViewSet(viewsets.ModelViewSet):
         Exclui uma mensagem do banco de dados e da W-API.
         """
         try:
-            mensagem = self.get_object()
+            # Log detalhado para debug
+            pk = kwargs.get("pk")
+            logger.info(f'🔍 Tentando excluir mensagem com ID: {pk}')
+            
+            # Verificar se a mensagem existe
+            try:
+                mensagem = self.get_object()
+                logger.info(f'✅ Mensagem encontrada: ID={mensagem.id}, message_id={mensagem.message_id}, from_me={mensagem.from_me}')
+            except Mensagem.DoesNotExist:
+                logger.error(f'❌ Mensagem não encontrada: ID={pk}')
+                return Response({
+                    'error': 'Mensagem não encontrada',
+                    'details': f'Mensagem com ID {pk} não existe no banco de dados'
+                }, status=status.HTTP_404_NOT_FOUND)
             
             # Verificar se a mensagem tem message_id (ID do WhatsApp)
             if not mensagem.message_id:
@@ -983,15 +996,18 @@ class MensagemViewSet(viewsets.ModelViewSet):
             deletador = DeletaMensagem(instancia.instance_id, instancia.token)
             
             # Excluir da W-API
+            logger.info(f'🔄 Excluindo da W-API: phone_number={mensagem.chat.chat_id}, message_id={mensagem.message_id}')
             resultado_wapi = deletador.deletar(
                 phone_number=mensagem.chat.chat_id,
                 message_ids=mensagem.message_id
             )
             
+            logger.info(f'📡 Resultado W-API: {resultado_wapi}')
+            
+            # Sempre excluir do banco local, independente do resultado da W-API
+            mensagem.delete()
+            
             if resultado_wapi.get('success'):
-                # Se excluiu com sucesso na W-API, excluir do banco
-                mensagem.delete()
-                
                 logger.info(f'✅ Mensagem {mensagem.message_id} excluída com sucesso da W-API e do banco')
                 
                 return Response({
@@ -1000,13 +1016,15 @@ class MensagemViewSet(viewsets.ModelViewSet):
                     'wapi_result': resultado_wapi
                 }, status=status.HTTP_200_OK)
             else:
-                # Se falhou na W-API, retornar erro
-                logger.error(f'❌ Erro ao excluir mensagem na W-API: {resultado_wapi}')
+                # Se falhou na W-API, mas excluiu do banco local
+                logger.warning(f'⚠️ Mensagem {mensagem.message_id} excluída do banco, mas falhou na W-API: {resultado_wapi}')
                 
                 return Response({
-                    'error': 'Erro ao excluir mensagem no WhatsApp',
-                    'details': resultado_wapi.get('error', 'Erro desconhecido')
-                }, status=status.HTTP_400_BAD_REQUEST)
+                    'success': True,
+                    'message': 'Mensagem excluída localmente (erro na W-API)',
+                    'wapi_result': resultado_wapi,
+                    'warning': 'A mensagem foi removida localmente, mas pode não ter sido excluída do WhatsApp'
+                }, status=status.HTTP_200_OK)
                 
         except Exception as e:
             logger.error(f'❌ Erro ao excluir mensagem: {e}')

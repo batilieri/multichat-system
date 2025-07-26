@@ -328,7 +328,8 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
         }
         
         const transformedMessage = {
-          id: msg.message_id || msg.id, // Usar message_id do webhook se disponível, senão usar id interno
+          id: msg.id, // Usar sempre o ID interno para identificação
+          message_id: msg.message_id, // Preservar o message_id original do WhatsApp
           internalId: msg.id, // Manter o ID interno para referência
           type: msg.tipo,
           content: conteudoProcessado,
@@ -583,6 +584,11 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
   // Função para abrir modal de dados da mensagem
   const handleShowInfo = (msg) => {
     setInfoModalMessage(msg)
+  }
+
+  const handleDelete = (messageId) => {
+    // Remover a mensagem da lista local
+    setMessages(prevMessages => prevMessages.filter(msg => msg.id !== messageId))
   }
 
   // Dados mock do contato (em um app real viriam da API)
@@ -890,6 +896,7 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
                     onReply={handleReply} 
                     onForward={handleForward} 
                     onShowInfo={handleShowInfo} 
+                    onDelete={handleDelete}
                   />
                 </div>
               ))}

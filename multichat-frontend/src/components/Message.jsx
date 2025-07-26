@@ -44,7 +44,7 @@ const MessageType = {
   STICKER: "sticker"
 };
 
-const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShowInfo }) => {
+const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShowInfo, onDelete }) => {
   // Remover log de debug excessivo
   // console.log('DEBUG MESSAGE OBJETO:', message);
   const [showReactionButton, setShowReactionButton] = useState(false)
@@ -166,7 +166,17 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
   }
   
   const handleDelete = async () => {
-    console.log('🗑️ Excluindo mensagem ID:', message.id)
+    console.log('🗑️ Excluindo mensagem ID:', message.id, 'message_id:', message.message_id)
+    
+    // Verificar se a mensagem tem message_id (necessário para exclusão)
+    if (!message.message_id) {
+      toast({
+        title: "Erro ao excluir",
+        description: "Esta mensagem não pode ser excluída (sem ID do WhatsApp)",
+        duration: 3000,
+      })
+      return
+    }
     
     // Confirmar exclusão
     if (!window.confirm('Tem certeza que deseja excluir esta mensagem?')) {
@@ -194,6 +204,10 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
       
       if (response.ok) {
         setIsDeleted(true)
+        // Notificar o componente pai sobre a exclusão
+        if (onDelete) {
+          onDelete(message.id)
+        }
         toast({
           title: "Mensagem excluída",
           description: data.message || "A mensagem foi excluída com sucesso",
