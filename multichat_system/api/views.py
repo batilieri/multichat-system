@@ -693,58 +693,35 @@ class ChatViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path='check-updates')
     def check_updates(self, request):
         """
-        Endpoint alternativo para verificar atualizações (polling)
+        Endpoint para verificar atualizações em tempo real
+        Busca diretamente do banco de dados para garantir precisão
         """
         from django.core.cache import cache
-        
+        from django.db.models import Q
+
         try:
-            # Obter timestamp da última verificação
             last_check = request.GET.get('last_check')
             if last_check:
                 try:
-                    # Tentar diferentes formatos de timestamp
                     if ' ' in last_check and '+00:00' in last_check:
-                        # Formato: "2025-07-19T03:53:10.655739 00:00"
                         last_check = last_check.replace(' +00:00', '+00:00')
                     elif ' ' in last_check:
-                        # Formato: "2025-07-19T03:53:10.655739 00:00"
                         last_check = last_check.replace(' ', '+')
-                    
+
                     last_check = timezone.datetime.fromisoformat(last_check.replace('Z', '+00:00'))
                 except ValueError as e:
                     print(f"Erro ao parsear timestamp: {last_check}, erro: {e}")
                     last_check = timezone.now() - timezone.timedelta(minutes=5)
             else:
                 last_check = timezone.now() - timezone.timedelta(minutes=5)
-            
-            # Verificar cache de atualizações
-            updates = cache.get("realtime_updates", [])
-            current_time = timezone.now()
-            
-            # Filtrar atualizações novas
-            new_updates = []
-            for update in updates:
-                try:
-                    update_timestamp = update.get('timestamp')
-                    if update_timestamp:
-                        # Corrigir formato do timestamp se necessário
-                        if ' ' in update_timestamp and '+00:00' in update_timestamp:
-                            update_timestamp = update_timestamp.replace(' +00:00', '+00:00')
-                        elif ' ' in update_timestamp:
-                            update_timestamp = update_timestamp.replace(' ', '+')
-                        
-                        update_time = timezone.datetime.fromisoformat(update_timestamp.replace('Z', '+00:00'))
-                        if update_time > last_check:
-                            new_updates.append(update)
-                except (ValueError, TypeError) as e:
-                    print(f"Erro ao processar update timestamp: {update.get('timestamp')}, erro: {e}")
-                    continue
-            
-            # Verificar novas mensagens desde a última verificação (fallback)
+
             user = request.user
+            current_time = timezone.now()
+            new_updates = []
+
+            # Buscar chats do usuário
             base_queryset = Chat.objects.select_related('cliente', 'atendente')
-            
-            # Filtrar por permissões do usuário
+
             if user.is_superuser or (hasattr(user, 'tipo_usuario') and user.tipo_usuario == 'admin'):
                 chats = base_queryset.all()
             elif hasattr(user, 'tipo_usuario') and user.tipo_usuario == 'cliente' and hasattr(user, 'cliente') and user.cliente:
@@ -753,55 +730,87 @@ class ChatViewSet(viewsets.ModelViewSet):
                 chats = base_queryset.filter(cliente=user.cliente)
             else:
                 chats = Chat.objects.none()
-            
-            # Verificar mensagens novas (apenas se não houver atualizações no cache)
-            if not new_updates:
-                novas_mensagens = Mensagem.objects.filter(
-                    chat__in=chats,
-                    data_envio__gt=last_check
-                ).select_related('chat').order_by('data_envio')
-                
-                # Verificar chats atualizados
-                chats_atualizados = chats.filter(
-                    last_message_at__gt=last_check
-                )
-                
-                # Adicionar mensagens novas
-                for msg in novas_mensagens:
-                    new_updates.append({
-                        'type': 'new_message',
+
+            # Buscar novas mensagens diretamente do banco
+            novas_mensagens = Mensagem.objects.filter(
+                chat__in=chats,
+                data_envio__gt=last_check
+            ).select_related('chat').order_by('data_envio')
+
+            # Buscar chats atualizados
+            chats_atualizados = chats.filter(
+                Q(last_message_at__gt=last_check) | 
+                Q(data_inicio__gt=last_check)
+            )
+
+            # Criar atualizações para novas mensagens
+            for msg in novas_mensagens:
+                new_updates.append({
+                    'type': 'new_message',
+                    'chat_id': msg.chat.chat_id,
+                    'message': {
+                        'id': msg.id,
+                        'type': msg.tipo,
+                        'content': msg.conteudo,
+                        'timestamp': msg.data_envio.isoformat(),
+                        'sender': msg.remetente,
+                        'isOwn': msg.from_me,
+                        'status': 'read' if msg.lida else 'sent',
+                        'message_id': msg.message_id
+                    },
+                    'chat_update': {
                         'chat_id': msg.chat.chat_id,
-                        'message': {
-                            'id': msg.id,
-                            'type': msg.tipo,
-                            'content': msg.conteudo,
-                            'timestamp': msg.data_envio.isoformat(),
-                            'sender': msg.remetente,
-                            'isOwn': msg.from_me,
-                            'status': 'read' if msg.lida else 'sent'
-                        }
-                    })
-                
-                # Adicionar chats atualizados
-                for chat in chats_atualizados:
+                        'last_message_at': msg.data_envio.isoformat(),
+                        'message_count': msg.chat.mensagens.count(),
+                        'chat_name': msg.chat.chat_name or msg.chat.chat_id,
+                        'sender_name': msg.remetente
+                    }
+                })
+
+            # Criar atualizações para chats modificados
+            for chat in chats_atualizados:
+                # Verificar se já não foi incluído por uma nova mensagem
+                if not any(update.get('chat_id') == chat.chat_id for update in new_updates):
                     new_updates.append({
                         'type': 'chat_updated',
                         'chat_id': chat.chat_id,
                         'last_message_at': chat.last_message_at.isoformat() if chat.last_message_at else None,
-                        'message_count': chat.mensagens.count()
+                        'message_count': chat.mensagens.count(),
+                        'chat_name': chat.chat_name or chat.chat_id
                     })
-            
+
+            # Verificar cache para atualizações em tempo real (backup)
+            cache_updates = cache.get("realtime_updates", [])
+            for update in cache_updates:
+                try:
+                    update_timestamp = update.get('timestamp')
+                    if update_timestamp:
+                        if ' ' in update_timestamp and '+00:00' in update_timestamp:
+                            update_timestamp = update_timestamp.replace(' +00:00', '+00:00')
+                        elif ' ' in update_timestamp:
+                            update_timestamp = update_timestamp.replace(' ', '+')
+
+                        update_time = timezone.datetime.fromisoformat(update_timestamp.replace('Z', '+00:00'))
+                        if update_time > last_check:
+                            # Adicionar apenas se não estiver já na lista
+                            if not any(existing.get('chat_id') == update.get('chat_id') for existing in new_updates):
+                                new_updates.append(update)
+                except (ValueError, TypeError) as e:
+                    print(f"Erro ao processar update do cache: {update.get('timestamp')}, erro: {e}")
+                    continue
+
             return Response({
                 'timestamp': current_time.isoformat(),
                 'updates': new_updates,
-                'has_updates': len(new_updates) > 0
+                'has_updates': len(new_updates) > 0,
+                'total_updates': len(new_updates)
             })
-            
+
         except Exception as e:
+            logger.error(f"❌ Erro no endpoint check_updates: {e}")
             return Response({
-                'error': str(e),
-                'timestamp': timezone.now().isoformat()
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                'error': str(e)
+            }, status=500)
 
 
 class MensagemViewSet(viewsets.ModelViewSet):

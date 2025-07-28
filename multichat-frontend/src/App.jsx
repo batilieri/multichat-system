@@ -18,6 +18,7 @@ import Favoritas from './components/Favoritas'
 // Context
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { RealtimeProvider } from './contexts/RealtimeContext'
 
 // Componente para rotas protegidas
 const ProtectedRoute = ({ children, requiredPermission }) => {
@@ -141,9 +142,11 @@ function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <Router>
-          <AppLayout />
-        </Router>
+        <RealtimeProvider>
+          <Router>
+            <AppLayout />
+          </Router>
+        </RealtimeProvider>
       </AuthProvider>
     </ThemeProvider>
   )

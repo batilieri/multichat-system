@@ -12,7 +12,7 @@ import {
   Tag
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
-import { useChatListUpdates } from '../hooks/use-realtime-updates'
+import { useChatListUpdates, useGlobalUpdates } from '../hooks/use-realtime-updates'
 
 // Componente de skeleton para loading
 const ChatSkeleton = () => (
@@ -32,34 +32,112 @@ const ChatList = ({ selectedChat, onSelectChat }) => {
   const [filter, setFilter] = useState('all') // all, waiting, active, resolved
   const { apiRequest } = useAuth()
   const [isRealtimeConnected, setIsRealtimeConnected] = useState(false)
+  const [lastUpdate, setLastUpdate] = useState(null)
+  // REMOVIDO: autoRefreshEnabled - agora tudo é automático
 
   // Removido dados mockados - usando apenas dados reais da API
 
-  // Função para atualizar chat em tempo real - OTIMIZADA
+  // Função para lidar com atualizações globais - MELHORADA
+  const handleGlobalUpdate = useCallback((update) => {
+    console.log('🌐 Atualização global recebida no ChatList:', update)
+    
+    if (update.type === 'global_new_message') {
+      const { chat_id, chat_name, sender_name, timestamp, message } = update.data
+      
+      // Atualizar apenas o chat específico na lista (sem recarregar tudo)
+      setChats(prevChats => {
+        return prevChats.map(chat => {
+          if (chat.chat_id === chat_id) {
+            // Atualizar apenas o chat que recebeu a nova mensagem
+            return {
+              ...chat,
+              last_message_at: timestamp,
+              total_mensagens: (chat.total_mensagens || 0) + 1,
+              ultima_mensagem: {
+                tipo: message.type,
+                conteudo: message.content,
+                data: timestamp,
+                sender: sender_name
+              }
+            }
+          }
+          return chat
+        })
+      })
+      
+      setLastUpdate(new Date().toISOString())
+      console.log(`✅ Chat ${chat_id} atualizado com nova mensagem`)
+    }
+  }, [])
+
+  // Função para lidar com atualizações específicas de chat
   const handleChatUpdate = useCallback((chatId, chatData) => {
     console.log('🔄 Chat atualizado em tempo real:', chatId, chatData)
     
-    setChats(prevChats => {
-      return prevChats.map(chat => {
-        if (chat.chat_id === chatId) {
-          return {
-            ...chat,
-            last_message_at: chatData.last_message_at,
-            total_mensagens: chatData.message_count,
-            // Atualizar última mensagem se necessário
-            ultima_mensagem: {
-              ...chat.ultima_mensagem,
-              data: chatData.last_message_at
+    if (chatData.type === 'new_message') {
+      // Nova mensagem recebida
+      setChats(prevChats => {
+        return prevChats.map(chat => {
+          if (chat.chat_id === chatId) {
+            return {
+              ...chat,
+              last_message_at: chatData.message.timestamp,
+              total_mensagens: (chat.total_mensagens || 0) + 1,
+              ultima_mensagem: {
+                tipo: chatData.message.type,
+                conteudo: chatData.message.content,
+                data: chatData.message.timestamp,
+                sender: chatData.message.sender
+              }
             }
           }
-        }
-        return chat
+          return chat
+        })
       })
-    })
+    } else if (chatData.type === 'chat_updated') {
+      // Chat atualizado (sem nova mensagem)
+      setChats(prevChats => {
+        return prevChats.map(chat => {
+          if (chat.chat_id === chatId) {
+            return {
+              ...chat,
+              last_message_at: chatData.last_message_at,
+              total_mensagens: chatData.message_count,
+              // Manter última mensagem se não houver nova
+              ultima_mensagem: chat.ultima_mensagem || {
+                tipo: 'text',
+                conteudo: 'Chat atualizado',
+                data: chatData.last_message_at,
+                sender: 'Sistema'
+              }
+            }
+          }
+          return chat
+        })
+      })
+    }
+    
+    setLastUpdate(new Date().toISOString())
+  }, [])
+
+  // Função para recarregar chats automaticamente - REMOVIDO AUTO-REFRESH
+  const handleAutoRefresh = useCallback(() => {
+    // Removido auto-refresh para evitar piscamento
+    // A atualização agora é feita apenas quando há nova mensagem
   }, [])
 
   // Usar hook de atualizações em tempo real para lista de chats
   useChatListUpdates(handleChatUpdate)
+  
+  // Usar hook de atualizações globais
+  useGlobalUpdates(handleGlobalUpdate)
+
+  // Sistema de auto-refresh REMOVIDO - agora só atualiza quando há nova mensagem
+  // useEffect(() => {
+  //   if (!autoRefreshEnabled) return
+  //   const interval = setInterval(handleAutoRefresh, 10000)
+  //   return () => clearInterval(interval)
+  // }, [handleAutoRefresh, autoRefreshEnabled])
 
   // OTIMIZADO: loadChats com timeout e melhor tratamento de erro
   const loadChats = useCallback(async () => {
@@ -98,27 +176,22 @@ const ChatList = ({ selectedChat, onSelectChat }) => {
         ultima_mensagem: chat.ultima_mensagem || {
           tipo: 'text',
           conteudo: 'Nenhuma mensagem ainda',
-          data: chat.data_inicio || new Date().toISOString()
+          data: chat.data_inicio || new Date().toISOString(),
+          sender: 'Sistema'
         },
-        total_mensagens: chat.total_mensagens ?? 0,
-        unread_count: chat.unread_count ?? 0,
-        // sender_name será o número de telefone (chat_id)
-        sender_name: chat.sender_name || chat.chat_id || `Chat ${chat.id}`,
-        // contact_name será o nome do contato
-        contact_name: chat.contact_name || chat.chat_name || chat.sender_name || chat.cliente_nome || `Chat ${chat.id}`,
-        group_name: chat.group_name || null,
-        is_group: chat.is_group || false,
-        chat_name: chat.contact_name || chat.chat_name || chat.sender_name || chat.cliente_nome || `Chat ${chat.id}` // Para garantir compatibilidade
+        last_message_at: chat.last_message_at || chat.data_inicio || new Date().toISOString(),
+        total_mensagens: chat.total_mensagens || 0,
+        status: chat.status || 'active',
+        prioridade: chat.prioridade || 'medium'
       }))
       
-      console.log('✅ Chats carregados:', transformedChats.length)
       setChats(transformedChats)
+      setLastUpdate(new Date().toISOString())
+      console.log(`✅ ${transformedChats.length} chats carregados com sucesso`)
       
     } catch (error) {
       console.error('❌ Erro ao carregar chats:', error)
       setError(error.message)
-      // Em caso de erro, mostrar lista vazia mas não quebrar a aplicação
-      setChats([])
     } finally {
       setLoading(false)
     }
@@ -235,36 +308,27 @@ const ChatList = ({ selectedChat, onSelectChat }) => {
       {/* Header com filtros */}
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold">Chats</h2>
           <div className="flex items-center space-x-2">
-            <Filter className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">
+            <h2 className="text-lg font-semibold">Chats</h2>
+            {/* Indicador de atualização automática - SEM ÍCONE DE SINCRONIZAÇÃO */}
+            <div className="flex items-center space-x-1">
+              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <span className="text-xs text-green-600 font-medium">Tempo real</span>
+            </div>
+          </div>
+          
+          {/* Contador de chats */}
+          <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+            <Filter className="w-4 h-4" />
+            <span>
               {sortedChats.length} {sortedChats.length === 1 ? 'chat' : 'chats'}
             </span>
+            {lastUpdate && (
+              <span className="text-xs">
+                • Atualizado {formatTime(lastUpdate)}
+              </span>
+            )}
           </div>
-        </div>
-        
-        {/* Filtros */}
-        <div className="flex space-x-2">
-          {[
-            { key: 'all', label: 'Todos', icon: MessageCircle },
-            { key: 'waiting', label: 'Aguardando', icon: Clock },
-            { key: 'active', label: 'Ativos', icon: User },
-            { key: 'resolved', label: 'Resolvidos', icon: Archive }
-          ].map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setFilter(key)}
-              className={`flex items-center space-x-1 px-3 py-1.5 rounded-md text-sm transition-colors ${
-                filter === key
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-              }`}
-            >
-              <Icon className="w-3 h-3" />
-              <span>{label}</span>
-            </button>
-          ))}
         </div>
       </div>
 
@@ -281,11 +345,8 @@ const ChatList = ({ selectedChat, onSelectChat }) => {
         ) : (
           <div className="space-y-1">
             {sortedChats.map((chat) => (
-              <motion.div
+              <div
                 key={chat.chat_id || chat.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2 }}
                 onClick={() => onSelectChat(chat)}
                 className={`
                   flex items-center space-x-3 p-3 cursor-pointer transition-colors
@@ -351,7 +412,7 @@ const ChatList = ({ selectedChat, onSelectChat }) => {
                     )}
                   </div>
                 </div>
-              </motion.div>
+              </div>
             ))}
           </div>
         )}
