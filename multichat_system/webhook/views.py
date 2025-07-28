@@ -98,123 +98,37 @@ def webhook_receiver(request):
         if not instance_id:
             return JsonResponse({'error': 'instanceId não fornecido'}, status=400)
         
-        # IDENTIFICAÇÃO AUTOMÁTICA: Determinar se é mensagem enviada pelo usuário
-        from_me = determine_from_me_saas(webhook_data, instance_id)
+        print(f"📨 Webhook recebido: {event_type} - {message_id}")
+        print(f"📊 Dados do webhook: {json.dumps(webhook_data, indent=2)}")
         
-        # Log para debug
-        print(f"🔍 WEBHOOK PRINCIPAL - from_me: {from_me}")
-        print(f"📤 Dados do webhook: {webhook_data}")
+        # Processar diferentes tipos de eventos
+        if event_type == 'messages.upsert':
+            success = process_webhook_message(webhook_data, event_type)
+        elif event_type == 'messages.update':
+            success = process_webhook_message(webhook_data, event_type)
+        elif event_type == 'presence.update':
+            success = process_webhook_presence(webhook_data)
+        elif event_type == 'connection.update':
+            success = process_webhook_connection(webhook_data, 'connect')
+        elif event_type == 'disconnect':
+            success = process_webhook_connection(webhook_data, 'disconnect')
+        else:
+            # Tentar processar como mensagem genérica
+            success = process_whatsapp_message(webhook_data, event_type)
         
-        # Verificar se a mensagem já foi processada
-        if message_id and Mensagem.objects.filter(message_id=message_id).exists():
-            logger.info(f"Mensagem já processada: {message_id}")
-            return JsonResponse({'status': 'success', 'message': 'Mensagem já processada'})
-        
-        # Buscar instância no banco
-        try:
-            instance = WhatsappInstance.objects.get(instance_id=instance_id)
-            cliente = instance.cliente
-        except WhatsappInstance.DoesNotExist:
-            return JsonResponse({'error': f'Instância {instance_id} não encontrada'}, status=404)
-        
-        # Criar evento de webhook
-        event = WebhookEvent.objects.create(
-            cliente=cliente,
-            instance_id=instance_id,
-            event_type=event_type,
-            raw_data=webhook_data,
-            ip_address=request.META.get('REMOTE_ADDR'),
-            user_agent=request.META.get('HTTP_USER_AGENT', '')
-        )
-        
-        # Extrair informações da mensagem se disponível
-        if 'msgContent' in webhook_data:
-            msg_content = webhook_data['msgContent']
+        if success:
+            print(f"✅ Webhook processado com sucesso: {event_type}")
+            return JsonResponse({'status': 'success', 'event': event_type})
+        else:
+            print(f"❌ Falha ao processar webhook: {event_type}")
+            return JsonResponse({'error': 'Falha ao processar webhook'}, status=500)
             
-            # Extrair dados básicos
-            chat_id = webhook_data.get('chat', {}).get('id')
-            sender_id = webhook_data.get('sender', {}).get('id')
-            sender_name = webhook_data.get('sender', {}).get('pushName', '')
-            
-            # DETERMINAR REMETENTE BASEADO EM from_me E CLIENTE
-            if from_me:
-                remetente = cliente.nome if cliente else "Usuário"  # Usar nome do cliente dinamicamente
-            else:
-                remetente = sender_name or sender_id or chat_id
-            
-            # Atualizar evento com informações extraídas
-            event.chat_id = chat_id
-            event.sender_id = sender_id
-            event.sender_name = remetente
-            event.message_id = message_id
-            
-            # Determinar tipo de mensagem
-            if 'imageMessage' in msg_content:
-                event.message_type = 'imageMessage'
-            elif 'videoMessage' in msg_content:
-                event.message_type = 'videoMessage'
-            elif 'audioMessage' in msg_content:
-                event.message_type = 'audioMessage'
-            elif 'documentMessage' in msg_content:
-                event.message_type = 'documentMessage'
-            elif 'stickerMessage' in msg_content:
-                event.message_type = 'stickerMessage'
-            elif 'textMessage' in msg_content:
-                event.message_type = 'textMessage'
-                event.message_content = msg_content['textMessage'].get('text', '')
-            elif 'conversation' in msg_content:
-                event.message_type = 'textMessage'
-                event.message_content = msg_content.get('conversation', '')
-            
-            event.save()
-            
-            # Processar mídia automaticamente se for uma mensagem de mídia
-            if any(media_type in msg_content for media_type in [
-                'imageMessage', 'videoMessage', 'audioMessage', 
-                'documentMessage', 'stickerMessage'
-            ]):
-                try:
-                    # Usar analisador completo para processar mídia
-                    resultado = processar_webhook_whatsapp(webhook_data)
-                    
-                    if resultado.get('sucesso'):
-                        logger.info(f"✅ Mídia processada com sucesso para mensagem {message_id}")
-                        logger.info(f"📊 Total processadas: {resultado.get('total_processadas', 0)}")
-                        
-                        # Log dos resultados individuais
-                        for resultado_midia in resultado.get('resultados_midias', []):
-                            if resultado_midia.get('sucesso'):
-                                logger.info(f"   ✅ {resultado_midia['tipo']}: {resultado_midia.get('download_status')}")
-                            else:
-                                logger.warning(f"   ⚠️ {resultado_midia['tipo']}: {resultado_midia.get('erro')}")
-                    else:
-                        logger.error(f"❌ Falha no processamento de mídia: {resultado.get('erro')}")
-                        
-                except Exception as e:
-                    logger.error(f"❌ Erro ao processar mídia: {e}")
-        
-        # Processar chat e sender (sem criar mensagens duplicadas)
-        process_chat_and_sender(event, webhook_data)
-        
-        # SALVAR MENSAGEM COM from_me CORRETO
-        if 'msgContent' in webhook_data:
-            try:
-                # Usar a função save_message_to_chat com from_me já determinado
-                success = save_message_to_chat_with_from_me(webhook_data, event, from_me, cliente)
-                if success:
-                    logger.info(f"✅ Mensagem salva com from_me={from_me}")
-                else:
-                    logger.warning(f"⚠️ Falha ao salvar mensagem")
-            except Exception as e:
-                logger.error(f"❌ Erro ao salvar mensagem: {e}")
-        
-        return JsonResponse({'status': 'success', 'event_id': str(event.event_id), 'from_me': from_me})
-        
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        print(f"❌ Erro ao decodificar JSON: {e}")
         return JsonResponse({'error': 'JSON inválido'}, status=400)
     except Exception as e:
-        logger.error(f"❌ Erro no webhook: {e}")
-        return JsonResponse({'error': 'Erro interno do servidor'}, status=500)
+        print(f"❌ Erro inesperado: {e}")
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 @csrf_exempt
@@ -345,50 +259,85 @@ def webhook_disconnect(request):
 
 def process_webhook_message(webhook_data, event_type):
     """
-    Processa webhook de mensagem (enviada ou recebida)
+    Processa mensagens do webhook do WhatsApp
     """
     try:
-        # Extrair informações básicas
+        print(f"📨 Processando mensagem: {event_type}")
+        
+        # Extrair dados básicos
         instance_id = webhook_data.get('instanceId')
         message_id = webhook_data.get('messageId')
         
         if not instance_id:
-            return JsonResponse({'error': 'instanceId não fornecido'}, status=400)
-        
-        # Verificar se a mensagem já foi processada
-        if message_id and Mensagem.objects.filter(message_id=message_id).exists():
-            logger.info(f"Mensagem já processada: {message_id}")
-            return JsonResponse({'status': 'success', 'message': 'Mensagem já processada'})
+            print("❌ instanceId não encontrado")
+            return False
         
         # Buscar instância no banco
         try:
             instance = WhatsappInstance.objects.get(instance_id=instance_id)
             cliente = instance.cliente
         except WhatsappInstance.DoesNotExist:
-            return JsonResponse({'error': f'Instância {instance_id} não encontrada'}, status=404)
+            print(f"❌ Instância {instance_id} não encontrada")
+            return False
+        
+        # IDENTIFICAÇÃO AUTOMÁTICA: Determinar se é mensagem enviada pelo usuário
+        from_me = determine_from_me_saas(webhook_data, instance_id)
+        print(f"🔍 from_me determinado: {from_me}")
+        
+        # Verificar se a mensagem já foi processada
+        if message_id and Mensagem.objects.filter(message_id=message_id).exists():
+            print(f"⚠️ Mensagem já processada: {message_id}")
+            return True
         
         # Criar evento de webhook
         event = WebhookEvent.objects.create(
             cliente=cliente,
             instance_id=instance_id,
-            event_type=f"message_{event_type}",
+            event_type=event_type,
             raw_data=webhook_data,
-            ip_address=request.META.get('REMOTE_ADDR'),
-            user_agent=request.META.get('HTTP_USER_AGENT', '')
+            ip_address='127.0.0.1',  # Para testes
+            user_agent='Test Agent'
         )
         
-        # Processar chat e sender
-        process_chat_and_sender(event, webhook_data)
+        # SALVAR MENSAGEM COM from_me CORRETO
+        if 'msgContent' in webhook_data or 'data' in webhook_data:
+            try:
+                # Usar a função save_message_to_chat com from_me já determinado
+                success = save_message_to_chat_with_from_me(webhook_data, event, from_me, cliente)
+                if success:
+                    print(f"✅ Mensagem salva com from_me={from_me}")
+                    
+                    # Processar mídia automaticamente se for uma mensagem de mídia
+                    msg_content = webhook_data.get('msgContent', {})
+                    if any(media_type in msg_content for media_type in [
+                        'imageMessage', 'videoMessage', 'audioMessage', 
+                        'documentMessage', 'stickerMessage'
+                    ]):
+                        try:
+                            # Usar analisador completo para processar mídia
+                            resultado = processar_webhook_whatsapp(webhook_data)
+                            
+                            if resultado.get('sucesso'):
+                                print(f"✅ Mídia processada com sucesso para mensagem {message_id}")
+                            else:
+                                print(f"❌ Falha no processamento de mídia: {resultado.get('erro')}")
+                                
+                        except Exception as e:
+                            print(f"❌ Erro ao processar mídia: {e}")
+                    
+                    return True
+                else:
+                    print("⚠️ Falha ao salvar mensagem")
+                    return False
+            except Exception as e:
+                print(f"❌ Erro ao salvar mensagem: {e}")
+                return False
         
-        # Salvar mensagem se for de texto
-        if 'msgContent' in webhook_data:
-            save_message_to_chat(webhook_data, event)
-        
-        return JsonResponse({'status': 'success', 'event_id': str(event.event_id)})
+        return True
         
     except Exception as e:
-        logger.error(f"❌ Erro ao processar webhook de mensagem: {e}")
-        return JsonResponse({'error': 'Erro interno do servidor'}, status=500)
+        print(f"❌ Erro ao processar mensagem: {e}")
+        return False
 
 
 def process_webhook_presence(webhook_data):

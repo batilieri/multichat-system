@@ -24,7 +24,10 @@ import {
   VolumeX,
   Star,
   Pin,
-  Heart
+  Heart,
+  Info,
+  CheckCheck,
+  Play
 } from 'lucide-react'
 import Message from './Message'
 import EmojiPicker from './EmojiPicker'
@@ -201,27 +204,36 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
       locationLongitude: newMessage.locationLongitude,
       locationName: newMessage.locationName,
       locationAddress: newMessage.locationAddress,
-      pollName: newMessage.pollName,
-      pollOptions: newMessage.pollOptions,
-      pollSelectableCount: newMessage.pollSelectableCount,
-      stickerUrl: newMessage.stickerUrl,
-      stickerMimetype: newMessage.stickerMimetype,
-      stickerFileLength: newMessage.stickerFileLength,
-      stickerIsAnimated: newMessage.stickerIsAnimated,
-      stickerIsAvatar: newMessage.stickerIsAvatar,
-      stickerIsAi: newMessage.stickerIsAi,
-      stickerIsLottie: newMessage.stickerIsLottie,
-      thumbnailDirectPath: newMessage.thumbnailDirectPath,
-      thumbnailSha256: newMessage.thumbnailSha256,
-      thumbnailEncSha256: newMessage.thumbnailEncSha256,
-      thumbnailHeight: newMessage.thumbnailHeight,
-      thumbnailWidth: newMessage.thumbnailWidth
+      contactName: newMessage.contactName,
+      contactNumber: newMessage.contactNumber,
+      contactDisplayName: newMessage.contactDisplayName,
+      contactVcard: newMessage.contactVcard,
+      // Campos de reação
+      reaction: newMessage.reaction,
+      // Campos de encaminhamento
+      forwardedFrom: newMessage.forwardedFrom,
+      forwardedFromName: newMessage.forwardedFromName,
+      forwardedFromId: newMessage.forwardedFromId,
+      // Campos de resposta
+      replyToMessageId: newMessage.replyToMessageId,
+      replyToMessageContent: newMessage.replyToMessageContent,
+      replyToMessageSender: newMessage.replyToMessageSender,
+      // Campos de status
+      status: newMessage.status || 'sent',
+      // Campos de timestamp
+      timestamp: newMessage.timestamp,
+      // Campos de ID
+      messageId: newMessage.message_id || newMessage.id
     }
-
-    // Adicionar mensagem ao estado (no final da lista)
-    setMessages(prev => [...prev, transformedMessage])
     
-    // Scroll para a última mensagem
+    // Adicionar nova mensagem ao estado
+    setMessages(prevMessages => {
+      const updatedMessages = [...prevMessages, transformedMessage]
+      console.log('✅ Nova mensagem adicionada ao estado:', transformedMessage)
+      return updatedMessages
+    })
+    
+    // Scroll automático para a nova mensagem
     setTimeout(() => {
       const messagesContainer = document.querySelector('.messages-container')
       if (messagesContainer) {
@@ -242,6 +254,18 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     handleNewMessage,
     handleChatUpdate
   )
+
+  // Recarregar mensagens periodicamente para garantir sincronização
+  useEffect(() => {
+    if (!chat?.chat_id) return
+
+    const reloadInterval = setInterval(() => {
+      console.log('🔄 Recarregando mensagens para sincronização...')
+      loadMessages(0, false) // Recarregar sem scroll automático
+    }, 10000) // A cada 10 segundos
+
+    return () => clearInterval(reloadInterval)
+  }, [chat?.chat_id])
 
   // Scroll automático para o final quando mensagens são carregadas
   useEffect(() => {

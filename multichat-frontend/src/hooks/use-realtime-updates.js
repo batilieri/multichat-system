@@ -91,6 +91,29 @@ export const useRealtimeUpdates = () => {
     }
   }, [apiRequest])
 
+  // Iniciar polling quando o hook é montado
+  useEffect(() => {
+    console.log('🔌 Iniciando sistema de tempo real...')
+    pollingRef.current = true
+    lastCheckRef.current = new Date(Date.now() - 60000).toISOString() // 1 minuto atrás
+    
+    // Primeira verificação imediata
+    checkForUpdates()
+    
+    // Configurar polling a cada 3 segundos
+    const interval = setInterval(() => {
+      if (pollingRef.current) {
+        checkForUpdates()
+      }
+    }, 3000) // 3 segundos
+
+    return () => {
+      console.log('🔌 Parando sistema de tempo real...')
+      pollingRef.current = false
+      clearInterval(interval)
+    }
+  }, [checkForUpdates])
+
   // Função para conectar
   const connect = useCallback(() => {
     if (pollingRef.current) {
