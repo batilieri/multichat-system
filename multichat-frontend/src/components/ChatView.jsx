@@ -336,6 +336,10 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
           timestamp: msg.data_envio,
           sender: msg.remetente,
           isOwn: msg.fromMe || msg.from_me, // Usar ambos os campos para compatibilidade
+          
+          // Debug: verificar campos de propriedade
+          fromMe: msg.fromMe,
+          from_me: msg.from_me,
           status: msg.lida ? 'read' : 'sent',
           replyTo: null,
           forwarded: false,
@@ -379,7 +383,7 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
         }
         
         // Log para verificar se o ID está sendo preservado
-        console.log(`📝 Mensagem transformada ${index}: ID=${transformedMessage.id}, Tipo=${transformedMessage.type}`)
+        console.log(`📝 Mensagem transformada ${index}: ID=${transformedMessage.id}, Tipo=${transformedMessage.type}, isOwn=${transformedMessage.isOwn}, from_me=${transformedMessage.from_me}, fromMe=${transformedMessage.fromMe}`)
         
         return transformedMessage
       })

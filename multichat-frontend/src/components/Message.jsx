@@ -56,9 +56,38 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
   const [showInfoModal, setShowInfoModal] = useState(false)
   const [showReportModal, setShowReportModal] = useState(false)
   const [isDeleted, setIsDeleted] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editText, setEditText] = useState('')
+  const [isEditing, setIsEditing] = useState(false)
+  
+  // Debug: monitorar mudanças no estado do modal
+  useEffect(() => {
+    console.log('🔄 Estado do modal alterado:', showEditModal)
+  }, [showEditModal])
   const { toast } = useToast()
+
+  // Função para lidar com teclas de atalho
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault()
+      handleSaveEdit()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      setShowEditModal(false)
+    }
+  }
   const isMe = message.isOwn
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
+  
+  // Debug: verificar se a mensagem é própria
+  console.log(`🔍 Debug mensagem ${message.id}:`, {
+    isOwn: message.isOwn,
+    from_me: message.from_me,
+    fromMe: message.fromMe,
+    isMe: isMe,
+    tipo: message.tipo || message.type,
+    content: message.content || message.conteudo
+  })
   const [popoverSide, setPopoverSide] = useState('top')
   const [popoverAlign, setPopoverAlign] = useState('start')
   const reactionButtonRef = useRef(null)
@@ -145,9 +174,17 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
   }
   const handleEdit = async () => {
     console.log('✏️ Editando mensagem ID:', message.id)
+    console.log('📋 Dados da mensagem:', {
+      id: message.id,
+      type: message.type,
+      content: message.content,
+      conteudo: message.conteudo,
+      isOwn: message.isOwn
+    })
     
     // Verificar se a mensagem pode ser editada (apenas mensagens de texto)
     if (message.type !== 'texto' && message.type !== 'text') {
+      console.log('❌ Tipo de mensagem não permitido:', message.type)
       toast({
         title: "Não é possível editar",
         description: "Apenas mensagens de texto podem ser editadas",
@@ -156,13 +193,117 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
       return
     }
     
-    // TODO: Implementar modal de edição
-    // Por enquanto, apenas mostrar o ID
-    toast({
-      title: "Editar mensagem",
-      description: `Editando mensagem ID: ${message.id}`,
-      duration: 2000,
-    })
+    // Abrir modal de edição
+    const textoOriginal = message.content || message.conteudo || ''
+    console.log('📝 Texto original:', textoOriginal)
+    setEditText(textoOriginal)
+    setShowEditModal(true)
+    console.log('✅ Modal de edição aberto')
+  }
+
+  const handleSaveEdit = async () => {
+    const textoLimpo = editText.trim()
+    
+    // Validações
+    if (!textoLimpo) {
+      toast({
+        title: "Erro",
+        description: "O texto não pode estar vazio",
+        duration: 3000,
+      })
+      return
+    }
+
+    const textoOriginal = message.content || message.conteudo || ''
+    if (textoLimpo === textoOriginal) {
+      toast({
+        title: "Aviso",
+        description: "O texto não foi alterado",
+        duration: 2000,
+      })
+      return
+    }
+
+    if (textoLimpo.length > 4096) {
+      toast({
+        title: "Erro",
+        description: "O texto é muito longo (máximo 4096 caracteres)",
+        duration: 3000,
+      })
+      return
+    }
+
+    setIsEditing(true)
+    
+    try {
+      console.log('🔄 Enviando edição para API...')
+      console.log('   - ID da mensagem:', message.id)
+      console.log('   - Novo texto:', textoLimpo)
+      
+      const response = await fetch(`http://localhost:8000/api/mensagens/${message.id}/editar/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          novo_texto: textoLimpo
+        }),
+      })
+      
+      let data = {}
+      try {
+        data = await response.json()
+      } catch (jsonError) {
+        console.warn('Resposta não é JSON válido:', response.status, response.statusText)
+        data = { error: `Erro ${response.status}: ${response.statusText}` }
+      }
+      
+      console.log('📡 Resposta da API:', response.status, data)
+      
+      if (response.ok) {
+        // Atualizar a mensagem localmente
+        message.content = textoLimpo
+        message.conteudo = textoLimpo
+        
+        setShowEditModal(false)
+        setEditText('')
+        
+        toast({
+          title: "✅ Mensagem editada",
+          description: data.message || "A mensagem foi editada com sucesso no WhatsApp e no sistema",
+          duration: 3000,
+        })
+        
+        console.log('✅ Mensagem editada com sucesso:', data)
+      } else {
+        // Tratar diferentes tipos de erro
+        let errorMessage = data.error || data.details || `Erro ${response.status}: ${response.statusText}`
+        
+        if (response.status === 404) {
+          errorMessage = "Mensagem não encontrada"
+        } else if (response.status === 400) {
+          if (data.error?.includes('message_id')) {
+            errorMessage = "Esta mensagem não pode ser editada (sem ID do WhatsApp)"
+          } else if (data.error?.includes('from_me')) {
+            errorMessage = "Apenas mensagens enviadas por você podem ser editadas"
+          } else if (data.error?.includes('texto')) {
+            errorMessage = "Apenas mensagens de texto podem ser editadas"
+          }
+        }
+        
+        throw new Error(errorMessage)
+      }
+    } catch (error) {
+      console.error('❌ Erro ao editar mensagem:', error)
+      toast({
+        title: "❌ Erro ao editar",
+        description: error.message || "Não foi possível editar a mensagem",
+        duration: 4000,
+      })
+    } finally {
+      setIsEditing(false)
+    }
   }
   
   const handleDelete = async () => {
@@ -487,6 +628,12 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
                   {isMe && (
                     <DropdownMenuItem onClick={handleEdit}>
                       <Pencil className="w-4 h-4 mr-2" /> Editar
+                    </DropdownMenuItem>
+                  )}
+                  {/* Debug: mostrar quando não é própria */}
+                  {!isMe && (message.tipo === 'text' || message.type === 'text') && (
+                    <DropdownMenuItem disabled>
+                      <Pencil className="w-4 h-4 mr-2" /> Editar (não própria)
                     </DropdownMenuItem>
                   )}
                   {/* Apagar - sempre, destructive */}
@@ -877,6 +1024,60 @@ function renderMessageContent(message) {
         </motion.div>
       )
   }
+
+  return (
+    <>
+      {/* Modal de edição simplificado para teste */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold">Editar mensagem</h2>
+              <button 
+                onClick={() => setShowEditModal(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium mb-2">Texto original:</label>
+              <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded text-sm mb-4">
+                {message.content || message.conteudo || 'Sem conteúdo'}
+              </div>
+              
+              <label className="block text-sm font-medium mb-2">Novo texto:</label>
+              <textarea
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                className="w-full p-2 border rounded resize-none"
+                rows={4}
+                placeholder="Digite o novo texto..."
+                autoFocus
+              />
+            </div>
+            
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="px-4 py-2 border rounded hover:bg-gray-100"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                disabled={!editText.trim()}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+              >
+                Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
 }
 
 export { MessageType };
