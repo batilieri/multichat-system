@@ -390,7 +390,7 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
       } catch (error) {
         console.error('❌ Erro ao verificar mensagens novas:', error)
       }
-    }, 10000) // A cada 10 segundos
+    }, 3000) // A cada 3 segundos
 
     return () => clearInterval(checkNewMessagesInterval)
   }, [chat?.chat_id]) // Remover dependência de messages.length para evitar loops

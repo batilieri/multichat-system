@@ -152,12 +152,12 @@ export const useRealtimeUpdates = () => {
     // Primeira verificação imediata
     checkForUpdates()
     
-    // Configurar polling a cada 5 segundos (em vez de 3s) - OTIMIZADO
+    // Configurar polling a cada 3 segundos - OTIMIZADO
     const interval = setInterval(() => {
       if (pollingRef.current && !hasActiveWebhookRef.current) {
         checkForUpdates()
       }
-    }, 5000) // 5 segundos
+    }, 3000) // 3 segundos
 
     return () => {
       console.log('🔌 Parando sistema de tempo real...')
@@ -177,12 +177,12 @@ export const useRealtimeUpdates = () => {
     // Verificação inicial
     checkForUpdates()
     
-    // Iniciar polling a cada 5 segundos
+    // Iniciar polling a cada 3 segundos
     pollingRef.current = setInterval(() => {
       if (!hasActiveWebhookRef.current) {
         checkForUpdates()
       }
-    }, 5000)
+    }, 3000)
     
     setIsConnected(true)
   }, [checkForUpdates])
