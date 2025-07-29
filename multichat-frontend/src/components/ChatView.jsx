@@ -374,17 +374,51 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
             }
           })
           
-          // Adicionar apenas as mensagens novas ao final
+          // Adicionar apenas as mensagens novas ao final e substituir temporárias
           setMessages(prevMessages => {
             const existingIds = new Set(prevMessages.map(msg => msg.id))
-            const trulyNewMessages = newMessages.filter(msg => !existingIds.has(msg.id))
+            const trulyNewMessages = newMessages.filter(msg => {
+              // Verificar se já existe pelo ID
+              if (existingIds.has(msg.id)) return false
+              
+              // Verificar se já existe pelo conteúdo e timestamp (evita duplicatas)
+              const existingByContent = prevMessages.find(existing => 
+                existing.content === msg.content &&
+                existing.from_me === msg.from_me &&
+                Math.abs(new Date(existing.timestamp) - new Date(msg.timestamp)) < 3000 // 3 segundos de tolerância
+              )
+              
+              if (existingByContent) {
+                console.log('⚠️ Ignorando mensagem duplicada:', msg.content)
+                return false
+              }
+              
+              return true
+            })
+            
+            // Remover mensagens temporárias que foram confirmadas pelo backend
+            const messagesWithoutTemps = prevMessages.filter(msg => {
+              // Se a mensagem é temporária, verificar se existe uma versão real do backend
+              if (msg.isTemporary) {
+                const realMessage = newMessages.find(realMsg => 
+                  realMsg.content === msg.content && 
+                  realMsg.from_me === true &&
+                  Math.abs(new Date(realMsg.timestamp) - new Date(msg.timestamp)) < 5000 // 5 segundos de tolerância
+                )
+                if (realMessage) {
+                  console.log('🔄 Substituindo mensagem temporária por versão real:', realMessage.id)
+                  return false // Remove a temporária
+                }
+              }
+              return true // Mantém a mensagem
+            })
             
             if (trulyNewMessages.length > 0) {
               console.log(`✅ Adicionando ${trulyNewMessages.length} mensagens novas`)
-              return [...prevMessages, ...trulyNewMessages]
+              return [...messagesWithoutTemps, ...trulyNewMessages]
             }
             
-            return prevMessages
+            return messagesWithoutTemps
           })
         }
       } catch (error) {
@@ -645,22 +679,32 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
         return;
       }
       try {
-        await enviarMensagemWapi({
+        const response = await enviarMensagemWapi({
           chat_id: chat.chat_id,
           instancia: instanciaId,
           token,
           mensagem: mensagemParaEnviar
         });
-        setMessages(prev => [...prev, {
-          id: Date.now(),
+        
+        // Criar ID único baseado no timestamp para evitar duplicação
+        const tempId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        // Adicionar mensagem temporária ao estado
+        const tempMessage = {
+          id: tempId,
+          message_id: response?.messageId || tempId,
           type: 'text',
           content: mensagemParaEnviar,
           timestamp: new Date().toISOString(),
           sender: 'Você',
           isOwn: true,
+          from_me: true,
           status: 'sent',
-          replyTo: null
-        }]);
+          replyTo: null,
+          isTemporary: true // Flag para identificar mensagem temporária
+        };
+        
+        setMessages(prev => [...prev, tempMessage]);
         setTimeout(() => {
           const messagesContainer = document.querySelector('.messages-container');
           if (messagesContainer) {
