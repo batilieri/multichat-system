@@ -2,7 +2,46 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 
 /**
- * Hook principal para gerenciar atualizações em tempo real dos chats
+ * Cache inteligente para mensagens
+ */
+class MessageCache {
+  constructor() {
+    this.cache = new Map()
+    this.maxSize = 1000 // Limite de mensagens em cache
+  }
+  
+  addMessage(chatId, message) {
+    if (!this.cache.has(chatId)) {
+      this.cache.set(chatId, [])
+    }
+    
+    const messages = this.cache.get(chatId)
+    
+    // Evita duplicatas
+    if (!messages.find(msg => msg.id === message.id)) {
+      messages.push(message)
+      
+      // Limita tamanho do cache
+      if (messages.length > this.maxSize) {
+        messages.shift() // Remove mensagem mais antiga
+      }
+    }
+  }
+  
+  getMessages(chatId) {
+    return this.cache.get(chatId) || []
+  }
+
+  clearChat(chatId) {
+    this.cache.delete(chatId)
+  }
+}
+
+// Instância global do cache
+const messageCache = new MessageCache()
+
+/**
+ * Hook principal para gerenciar atualizações em tempo real dos chats - OTIMIZADO
  */
 export const useRealtimeUpdates = () => {
   const [isConnected, setIsConnected] = useState(false)
@@ -14,9 +53,14 @@ export const useRealtimeUpdates = () => {
   const globalCallbacksRef = useRef([])
   const reconnectAttempts = useRef(0)
   const maxReconnectAttempts = 5
+  const isPollingRef = useRef(false) // Previne requisições simultâneas
+  const hasActiveWebhookRef = useRef(false) // Controle de webhook ativo
 
-  // Função para verificar atualizações
+  // Função para verificar atualizações - OTIMIZADA
   const checkForUpdates = useCallback(async () => {
+    if (isPollingRef.current) return // Previne requisições simultâneas
+    
+    isPollingRef.current = true
     try {
       const response = await apiRequest(`/api/chats/check-updates/?last_check=${lastCheckRef.current}`)
       
@@ -27,7 +71,7 @@ export const useRealtimeUpdates = () => {
       const data = await response.json()
       console.log('📡 Atualizações recebidas:', data)
 
-      if (data.updates && Array.isArray(data.updates)) {
+      if (data.has_updates && data.updates && Array.isArray(data.updates)) {
         // Processar cada atualização de forma mais eficiente
         data.updates.forEach(update => {
           // Verificar se é uma atualização global
@@ -44,6 +88,12 @@ export const useRealtimeUpdates = () => {
           } else if (update.type === 'new_message') {
             // Atualização específica de nova mensagem
             console.log('📨 Nova mensagem recebida:', update)
+            
+            // Adicionar ao cache
+            if (update.message && update.chat_id) {
+              messageCache.addMessage(update.chat_id, update.message)
+            }
+            
             const callbacks = callbacksRef.current.get(update.chat_id) || []
             callbacks.forEach(callback => {
               try {
@@ -88,10 +138,12 @@ export const useRealtimeUpdates = () => {
           }
         }, delay)
       }
+    } finally {
+      isPollingRef.current = false
     }
   }, [apiRequest])
 
-  // Iniciar polling quando o hook é montado
+  // Iniciar polling quando o hook é montado - OTIMIZADO
   useEffect(() => {
     console.log('🔌 Iniciando sistema de tempo real...')
     pollingRef.current = true
@@ -100,12 +152,12 @@ export const useRealtimeUpdates = () => {
     // Primeira verificação imediata
     checkForUpdates()
     
-    // Configurar polling a cada 3 segundos
+    // Configurar polling a cada 5 segundos (em vez de 3s) - OTIMIZADO
     const interval = setInterval(() => {
-      if (pollingRef.current) {
+      if (pollingRef.current && !hasActiveWebhookRef.current) {
         checkForUpdates()
       }
-    }, 3000) // 3 segundos
+    }, 5000) // 5 segundos
 
     return () => {
       console.log('🔌 Parando sistema de tempo real...')
@@ -114,7 +166,7 @@ export const useRealtimeUpdates = () => {
     }
   }, [checkForUpdates])
 
-  // Função para conectar
+  // Função para conectar - OTIMIZADA
   const connect = useCallback(() => {
     if (pollingRef.current) {
       clearInterval(pollingRef.current)
@@ -125,8 +177,12 @@ export const useRealtimeUpdates = () => {
     // Verificação inicial
     checkForUpdates()
     
-    // Iniciar polling a cada 3 segundos
-    pollingRef.current = setInterval(checkForUpdates, 3000)
+    // Iniciar polling a cada 5 segundos
+    pollingRef.current = setInterval(() => {
+      if (!hasActiveWebhookRef.current) {
+        checkForUpdates()
+      }
+    }, 5000)
     
     setIsConnected(true)
   }, [checkForUpdates])
@@ -168,6 +224,22 @@ export const useRealtimeUpdates = () => {
     globalCallbacksRef.current = globalCallbacksRef.current.filter(cb => cb !== callback)
   }, [])
 
+  // Função para controlar webhook ativo
+  const setWebhookActive = useCallback((active) => {
+    hasActiveWebhookRef.current = active
+    console.log(`🔌 Webhook ${active ? 'ativado' : 'desativado'}`)
+  }, [])
+
+  // Função para obter mensagens do cache
+  const getCachedMessages = useCallback((chatId) => {
+    return messageCache.getMessages(chatId)
+  }, [])
+
+  // Função para limpar cache de um chat
+  const clearChatCache = useCallback((chatId) => {
+    messageCache.clearChat(chatId)
+  }, [])
+
   // Limpeza na desmontagem
   useEffect(() => {
     return () => {
@@ -183,15 +255,24 @@ export const useRealtimeUpdates = () => {
     registerCallbacks,
     unregisterCallbacks,
     registerGlobalCallback,
-    unregisterGlobalCallback
+    unregisterGlobalCallback,
+    setWebhookActive,
+    getCachedMessages,
+    clearChatCache
   }
 }
 
 /**
- * Hook específico para atualizações de chat
+ * Hook específico para atualizações de chat - OTIMIZADO
  */
 export const useChatUpdates = (chatId, onNewMessage, onChatUpdate) => {
-  const { registerCallbacks, unregisterCallbacks, isConnected } = useRealtimeUpdates()
+  const { 
+    registerCallbacks, 
+    unregisterCallbacks, 
+    isConnected,
+    getCachedMessages,
+    clearChatCache
+  } = useRealtimeUpdates()
 
   useEffect(() => {
     if (!chatId) return
@@ -220,7 +301,11 @@ export const useChatUpdates = (chatId, onNewMessage, onChatUpdate) => {
     }
   }, [chatId, onNewMessage, onChatUpdate, registerCallbacks, unregisterCallbacks])
 
-  return { isConnected }
+  return { 
+    isConnected,
+    getCachedMessages: () => getCachedMessages(chatId),
+    clearChatCache: () => clearChatCache(chatId)
+  }
 }
 
 /**

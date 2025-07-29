@@ -718,8 +718,17 @@ class WhatsAppWebhookProcessor:
                 return
             
             # Outros campos seguindo os dados mockados
-            message_type = 'text' if 'conversation' in msg_content else 'unknown'
-            text_content = msg_content.get('conversation', '')
+            message_type = 'text' if 'conversation' in msg_content or 'extendedTextMessage' in msg_content else 'unknown'
+            
+            # Extrair texto de múltiplas fontes possíveis
+            text_content = ''
+            if 'conversation' in msg_content:
+                text_content = msg_content.get('conversation', '')
+            elif 'extendedTextMessage' in msg_content:
+                text_content = msg_content.get('extendedTextMessage', {}).get('text', '')
+            elif 'textMessage' in msg_content:
+                text_content = msg_content.get('textMessage', {}).get('text', '')
+            
             timestamp = webhook_event.timestamp
             is_group = data.get('isGroup', False)
             group_name = data.get('groupName') if is_group else None
@@ -757,7 +766,10 @@ class WhatsAppWebhookProcessor:
                     from_me = True
 
             # Log detalhado
-            logger.info(f"[FALLBACK] Criando chat_id: {chat_id}, sender_name: {sender_name}, message_id: {message_id}, texto: {text_content}, is_group: {is_group}, from_me: {from_me}, profile_picture: {profile_picture}")
+            logger.info(f"[FALLBACK] Criando chat_id: {chat_id}, sender_name: {sender_name}, message_id: {message_id}, texto: '{text_content}', is_group: {is_group}, from_me: {from_me}, profile_picture: {profile_picture}")
+            logger.info(f"[FALLBACK] msgContent estrutura: {list(msg_content.keys())}")
+            if 'extendedTextMessage' in msg_content:
+                logger.info(f"[FALLBACK] extendedTextMessage: {msg_content['extendedTextMessage']}")
 
             # Atualizar evento
             webhook_event.chat_id = chat_id

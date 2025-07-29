@@ -1,7 +1,7 @@
 // Este arquivo foi restaurado para a versão original da base.
 // Importe novamente a versão padrão do ChatView.jsx do repositório principal.
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, memo } from 'react'
 import { motion } from 'framer-motion'
 import {
   Send,
@@ -136,9 +136,13 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     console.log('🔄 useEffect - chat mudou:', chat?.chat_id)
     if (chat?.chat_id) {
       console.log('📱 Carregando mensagens para chat:', chat.chat_id)
+      // Limpar mensagens anteriores
+      setMessages([])
+      setLoading(true)
       loadMessages(0, true) // Carregar mensagens e scroll para o final
     } else {
       console.log('❌ Chat ID não encontrado')
+      setMessages([])
     }
   }, [chat?.chat_id])
 
@@ -162,75 +166,70 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
   }, [showEmojiPicker])
 
   // Função para adicionar nova mensagem em tempo real
-  const handleNewMessage = (newMessage) => {
+  // Callback memoizado para evitar re-renders desnecessários
+  const handleNewMessage = useCallback((newMessage) => {
     console.log('🆕 Nova mensagem recebida em tempo real:', newMessage)
     
     // Verificar se a mensagem já existe para evitar duplicação
-    const messageExists = messages.some(msg => msg.id === newMessage.id)
-    if (messageExists) {
-      console.log('⚠️ Mensagem já existe, ignorando:', newMessage.id)
-      return
-    }
-    
-    // Transformar mensagem para o formato esperado
-    const transformedMessage = {
-      id: newMessage.id,
-      type: newMessage.type,
-      content: newMessage.content,
-      timestamp: newMessage.timestamp,
-      sender: newMessage.sender,
-      isOwn: newMessage.isOwn,
-      status: newMessage.status,
-      replyTo: null,
-      forwarded: false,
-      // Campos de mídia (se aplicável)
-      mediaUrl: newMessage.mediaUrl,
-      mediaType: newMessage.mediaType,
-      mediaSize: newMessage.mediaSize,
-      mediaCaption: newMessage.mediaCaption,
-      mediaHeight: newMessage.mediaHeight,
-      mediaWidth: newMessage.mediaWidth,
-      jpegThumbnail: newMessage.jpegThumbnail,
-      fileSha256: newMessage.fileSha256,
-      mediaKey: newMessage.mediaKey,
-      directPath: newMessage.directPath,
-      mediaKeyTimestamp: newMessage.mediaKeyTimestamp,
-      documentUrl: newMessage.documentUrl,
-      documentFilename: newMessage.documentFilename,
-      documentMimetype: newMessage.documentMimetype,
-      documentFileLength: newMessage.documentFileLength,
-      documentPageCount: newMessage.documentPageCount,
-      locationLatitude: newMessage.locationLatitude,
-      locationLongitude: newMessage.locationLongitude,
-      locationName: newMessage.locationName,
-      locationAddress: newMessage.locationAddress,
-      contactName: newMessage.contactName,
-      contactNumber: newMessage.contactNumber,
-      contactDisplayName: newMessage.contactDisplayName,
-      contactVcard: newMessage.contactVcard,
-      // Campos de reação
-      reaction: newMessage.reaction,
-      // Campos de encaminhamento
-      forwardedFrom: newMessage.forwardedFrom,
-      forwardedFromName: newMessage.forwardedFromName,
-      forwardedFromId: newMessage.forwardedFromId,
-      // Campos de resposta
-      replyToMessageId: newMessage.replyToMessageId,
-      replyToMessageContent: newMessage.replyToMessageContent,
-      replyToMessageSender: newMessage.replyToMessageSender,
-      // Campos de status
-      status: newMessage.status || 'sent',
-      // Campos de timestamp
-      timestamp: newMessage.timestamp,
-      // Campos de ID
-      messageId: newMessage.message_id || newMessage.id
-    }
-    
-    // Adicionar nova mensagem ao estado
     setMessages(prevMessages => {
-      const updatedMessages = [...prevMessages, transformedMessage]
+      const messageExists = prevMessages.some(msg => msg.id === newMessage.id)
+      if (messageExists) {
+        console.log('⚠️ Mensagem já existe, ignorando:', newMessage.id)
+        return prevMessages
+      }
+      
+      // Transformar mensagem para o formato esperado
+      const transformedMessage = {
+        id: newMessage.id,
+        type: newMessage.type,
+        content: newMessage.content,
+        timestamp: newMessage.timestamp,
+        sender: newMessage.sender,
+        isOwn: newMessage.isOwn,
+        status: newMessage.status || 'sent',
+        replyTo: null,
+        forwarded: false,
+        // Campos de mídia (se aplicável)
+        mediaUrl: newMessage.mediaUrl,
+        mediaType: newMessage.mediaType,
+        mediaSize: newMessage.mediaSize,
+        mediaCaption: newMessage.mediaCaption,
+        mediaHeight: newMessage.mediaHeight,
+        mediaWidth: newMessage.mediaWidth,
+        jpegThumbnail: newMessage.jpegThumbnail,
+        fileSha256: newMessage.fileSha256,
+        mediaKey: newMessage.mediaKey,
+        directPath: newMessage.directPath,
+        mediaKeyTimestamp: newMessage.mediaKeyTimestamp,
+        documentUrl: newMessage.documentUrl,
+        documentFilename: newMessage.documentFilename,
+        documentMimetype: newMessage.documentMimetype,
+        documentFileLength: newMessage.documentFileLength,
+        documentPageCount: newMessage.documentPageCount,
+        locationLatitude: newMessage.locationLatitude,
+        locationLongitude: newMessage.locationLongitude,
+        locationName: newMessage.locationName,
+        locationAddress: newMessage.locationAddress,
+        contactName: newMessage.contactName,
+        contactNumber: newMessage.contactNumber,
+        contactDisplayName: newMessage.contactDisplayName,
+        contactVcard: newMessage.contactVcard,
+        // Campos de reação
+        reaction: newMessage.reaction,
+        // Campos de encaminhamento
+        forwardedFrom: newMessage.forwardedFrom,
+        forwardedFromName: newMessage.forwardedFromName,
+        forwardedFromId: newMessage.forwardedFromId,
+        // Campos de resposta
+        replyToMessageId: newMessage.replyToMessageId,
+        replyToMessageContent: newMessage.replyToMessageContent,
+        replyToMessageSender: newMessage.replyToMessageSender,
+        // Campos de ID
+        messageId: newMessage.message_id || newMessage.id
+      }
+      
       console.log('✅ Nova mensagem adicionada ao estado:', transformedMessage)
-      return updatedMessages
+      return [...prevMessages, transformedMessage]
     })
     
     // Scroll automático para a nova mensagem
@@ -240,44 +239,177 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
         messagesContainer.scrollTop = messagesContainer.scrollHeight
       }
     }, 100)
-  }
+  }, [])
 
-  // Função para atualizar dados do chat
-  const handleChatUpdate = (chatData) => {
+  // Callback memoizado para atualizações de chat
+  const handleChatUpdate = useCallback((chatData) => {
     console.log('🔄 Chat atualizado em tempo real:', chatData)
     // Aqui você pode atualizar informações do chat se necessário
-  }
+  }, [])
 
-  // Usar hook de atualizações em tempo real
-  const { isConnected } = useChatUpdates(
+  // Usar hook de atualizações em tempo real - OTIMIZADO
+  const { isConnected, getCachedMessages, clearChatCache } = useChatUpdates(
     chat?.chat_id,
     handleNewMessage,
     handleChatUpdate
   )
 
-  // Recarregar mensagens periodicamente para garantir sincronização
+  // Verificar apenas novas mensagens periodicamente - OTIMIZADO
   useEffect(() => {
     if (!chat?.chat_id) return
 
-    const reloadInterval = setInterval(() => {
-      console.log('🔄 Recarregando mensagens para sincronização...')
-      loadMessages(0, false) // Recarregar sem scroll automático
+    const checkNewMessagesInterval = setInterval(async () => {
+      console.log('🔍 Verificando apenas mensagens novas...')
+      
+      try {
+        // Buscar apenas mensagens mais recentes que a última carregada
+        const lastMessageTimestamp = messages.length > 0 
+          ? messages[messages.length - 1]?.timestamp 
+          : new Date(Date.now() - 60000).toISOString() // 1 minuto atrás se não há mensagens
+        
+        // Temporariamente desabilitar o filtro after para debug
+        const response = await apiRequest(
+          `/api/mensagens/?chat_id=${chat.chat_id}&limit=10`
+        )
+        
+        if (!response.ok) throw new Error('Erro na resposta da API')
+        const data = await response.json()
+        
+        if (data.results && data.results.length > 0) {
+          console.log(`📨 ${data.results.length} mensagens encontradas`)
+          
+          // Processar apenas as mensagens novas
+          const newMessages = data.results.map(msg => {
+            // Usar a mesma lógica de transformação da loadMessages
+            let conteudoProcessado = msg.conteudo || msg.content || ''
+            let mediaUrl = null
+            let mediaType = null
+            let mediaCaption = null
+            
+            if (typeof conteudoProcessado === 'string' && conteudoProcessado.startsWith('{')) {
+              try {
+                const jsonContent = JSON.parse(conteudoProcessado)
+                if (jsonContent.imageMessage) {
+                  mediaUrl = jsonContent.imageMessage.url
+                  mediaType = 'image'
+                  mediaCaption = jsonContent.imageMessage.caption
+                  conteudoProcessado = mediaCaption || '[Imagem]'
+                } else if (jsonContent.videoMessage) {
+                  mediaUrl = jsonContent.videoMessage.url
+                  mediaType = 'video'
+                  mediaCaption = jsonContent.videoMessage.caption
+                  conteudoProcessado = mediaCaption || '[Vídeo]'
+                } else if (jsonContent.audioMessage) {
+                  mediaUrl = jsonContent.audioMessage.url
+                  mediaType = 'audio'
+                  conteudoProcessado = '[Áudio]'
+                } else if (jsonContent.documentMessage) {
+                  mediaUrl = jsonContent.documentMessage.url
+                  mediaType = 'document'
+                  mediaCaption = jsonContent.documentMessage.fileName
+                  conteudoProcessado = `[Documento] ${mediaCaption || 'Documento'}`
+                } else if (jsonContent.stickerMessage) {
+                  mediaUrl = jsonContent.stickerMessage.url
+                  mediaType = 'sticker'
+                  conteudoProcessado = '[Sticker]'
+                } else if (jsonContent.textMessage) {
+                  conteudoProcessado = jsonContent.textMessage.text || 'Mensagem de texto'
+                } else {
+                  conteudoProcessado = '[Mídia]'
+                }
+              } catch (error) {
+                console.warn('⚠️ Erro ao processar JSON:', error)
+                conteudoProcessado = '[Conteúdo inválido]'
+              }
+            }
+            
+            return {
+              id: msg.id,
+              message_id: msg.message_id,
+              internalId: msg.id,
+              type: msg.tipo,
+              content: conteudoProcessado,
+              timestamp: msg.data_envio,
+              sender: msg.remetente,
+              isOwn: msg.fromMe || msg.from_me,
+              fromMe: msg.fromMe,
+              from_me: msg.from_me,
+              status: msg.lida ? 'read' : 'sent',
+              replyTo: null,
+              forwarded: false,
+              mediaUrl: mediaUrl || msg.media_url,
+              mediaType: mediaType || msg.media_type,
+              mediaCaption: mediaCaption || msg.media_caption,
+              mediaSize: msg.media_size,
+              mediaHeight: msg.media_height,
+              mediaWidth: msg.media_width,
+              jpegThumbnail: msg.jpeg_thumbnail,
+              fileSha256: msg.file_sha256,
+              mediaKey: msg.media_key,
+              directPath: msg.direct_path,
+              mediaKeyTimestamp: msg.media_key_timestamp,
+              documentUrl: msg.document_url,
+              documentFilename: msg.document_filename,
+              documentMimetype: msg.document_mimetype,
+              documentFileLength: msg.document_file_length,
+              documentPageCount: msg.document_page_count,
+              locationLatitude: msg.location_latitude,
+              locationLongitude: msg.location_longitude,
+              locationName: msg.location_name,
+              locationAddress: msg.location_address,
+              contactName: msg.contact_name,
+              contactNumber: msg.contact_number,
+              contactDisplayName: msg.contact_display_name,
+              contactVcard: msg.contact_vcard,
+              reaction: msg.reaction,
+              forwardedFrom: msg.forwarded_from,
+              forwardedFromName: msg.forwarded_from_name,
+              forwardedFromId: msg.forwarded_from_id,
+              replyToMessageId: msg.reply_to_message_id,
+              replyToMessageContent: msg.reply_to_message_content,
+              replyToMessageSender: msg.reply_to_message_sender,
+              messageId: msg.message_id || msg.id,
+              thumbnailHeight: msg.thumbnail_height,
+              thumbnailWidth: msg.thumbnail_width
+            }
+          })
+          
+          // Adicionar apenas as mensagens novas ao final
+          setMessages(prevMessages => {
+            const existingIds = new Set(prevMessages.map(msg => msg.id))
+            const trulyNewMessages = newMessages.filter(msg => !existingIds.has(msg.id))
+            
+            if (trulyNewMessages.length > 0) {
+              console.log(`✅ Adicionando ${trulyNewMessages.length} mensagens novas`)
+              return [...prevMessages, ...trulyNewMessages]
+            }
+            
+            return prevMessages
+          })
+        }
+      } catch (error) {
+        console.error('❌ Erro ao verificar mensagens novas:', error)
+      }
     }, 10000) // A cada 10 segundos
 
-    return () => clearInterval(reloadInterval)
-  }, [chat?.chat_id])
+    return () => clearInterval(checkNewMessagesInterval)
+  }, [chat?.chat_id]) // Remover dependência de messages.length para evitar loops
 
-  // Scroll automático para o final quando mensagens são carregadas
+  // Scroll automático apenas quando novas mensagens são adicionadas
+  const [lastMessageCount, setLastMessageCount] = useState(0)
+  
   useEffect(() => {
-    if (messages.length > 0) {
+    if (messages.length > lastMessageCount && messages.length > 0) {
+      // Só faz scroll se foram adicionadas novas mensagens
       setTimeout(() => {
         const messagesContainer = document.querySelector('.messages-container')
         if (messagesContainer) {
           messagesContainer.scrollTop = messagesContainer.scrollHeight
         }
       }, 100)
+      setLastMessageCount(messages.length)
     }
-  }, [messages])
+  }, [messages.length, lastMessageCount])
 
 
   const loadMessages = async (offsetValue = 0, scrollToBottom = false) => {
@@ -288,13 +420,19 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     try {
       setLoading(true)
       console.log('🔍 Carregando mensagens para chat:', chat.chat_id)
-      const response = await apiRequest(`/api/mensagens/?chat_id=${chat.chat_id}&limit=${MESSAGES_PAGE_SIZE}&offset=${offsetValue}`)
+      const url = `/api/mensagens/?chat_id=${chat.chat_id}&limit=${MESSAGES_PAGE_SIZE}&offset=${offsetValue}`
+      console.log('🌐 URL da requisição:', url)
+      const response = await apiRequest(url)
+      console.log('📡 Status da resposta:', response.status)
       if (!response.ok) throw new Error('Erro na resposta da API')
       const data = await response.json()
       console.log('📨 Dados recebidos da API:', data)
+      console.log('📊 Número de mensagens recebidas:', data.results?.length || data.length || 0)
       
       // Transformar dados do backend para o formato esperado pelo frontend
-      const newMessages = (data.results || data).map((msg, index) => {
+      const messagesToProcess = data.results || data || []
+      console.log('🔄 Processando mensagens:', messagesToProcess.length)
+      const newMessages = messagesToProcess.map((msg, index) => {
         console.log(`📝 Processando mensagem ${index}:`, msg)
         
         // Verificar se a mensagem tem dados válidos
@@ -430,8 +568,13 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
       console.log('📝 Mensagens finais:', reversedMessages.length)
       
       if (offsetValue === 0) {
+        // Só substitui completamente se for o carregamento inicial
+        console.log('✅ Definindo mensagens iniciais:', reversedMessages.length)
         setMessages(reversedMessages)
+        setLastMessageCount(reversedMessages.length)
       } else {
+        // Para paginação, adiciona ao final
+        console.log('✅ Adicionando mensagens à paginação:', reversedMessages.length)
         setMessages(prev => [...prev, ...reversedMessages])
       }
       setHasMore((data.results || data).length === MESSAGES_PAGE_SIZE)
@@ -585,8 +728,8 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     setMessage(prev => prev + emoji)
   }
 
-  // Função para agrupar mensagens por data
-  const groupMessagesByDate = (messages) => {
+  // Memoizar grupos de mensagens para evitar recálculos desnecessários
+  const messageGroups = useMemo(() => {
     console.log('📅 Agrupando mensagens:', messages.length)
     const groups = {}
     messages.forEach(msg => {
@@ -607,7 +750,7 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     })
     console.log('📅 Grupos criados:', Object.keys(groups).length)
     return groups
-  }
+  }, [messages])
 
   // Função para abrir modal de dados da mensagem
   const handleShowInfo = (msg) => {
@@ -925,7 +1068,7 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
       {/* Área de mensagens */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 w-full messages-container" onScroll={handleScroll}>
         {console.log('🎨 Renderizando mensagens:', messages.length, 'loading:', loading)}
-        {!loading && Object.entries(groupMessagesByDate(messages)).map(([date, msgs]) => (
+                        {!loading && Object.entries(messageGroups).map(([date, msgs]) => (
           <div key={date} className="w-full">
             <div className="flex justify-center my-2">
               <span className="bg-muted text-xs px-3 py-1 rounded-full border border-border">{date}</span>

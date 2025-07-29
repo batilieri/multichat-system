@@ -851,6 +851,7 @@ class MensagemViewSet(viewsets.ModelViewSet):
         chat_id = request.query_params.get('chat_id')
         tipo = request.query_params.get('tipo')
         lida = request.query_params.get('lida')
+        after = request.query_params.get('after')  # Novo parâmetro para buscar mensagens após uma data
         
         if chat_id:
             queryset = queryset.filter(chat__chat_id=chat_id)
@@ -858,6 +859,29 @@ class MensagemViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(tipo=tipo)
         if lida is not None:
             queryset = queryset.filter(lida=lida.lower() == 'true')
+        
+        # Filtrar mensagens após uma data específica (para atualizações incrementais)
+        if after:
+            try:
+                from datetime import datetime
+                import pytz
+                
+                # Converter a string ISO para datetime
+                if 'T' in after and 'Z' in after:
+                    # Formato ISO com Z
+                    after_dt = datetime.fromisoformat(after.replace('Z', '+00:00'))
+                elif 'T' in after:
+                    # Formato ISO sem Z
+                    after_dt = datetime.fromisoformat(after)
+                else:
+                    # Formato simples
+                    after_dt = datetime.fromisoformat(after)
+                
+                # Filtrar mensagens mais recentes que a data especificada
+                queryset = queryset.filter(data_envio__gt=after_dt)
+                logger.info(f'🔍 Filtrando mensagens após {after_dt} para chat {chat_id}')
+            except Exception as e:
+                logger.warning(f'⚠️ Erro ao processar parâmetro after={after}: {e}')
         
         # EXCLUIR MENSAGENS DE PROTOCOLO DO WHATSAPP
         # Filtrar mensagens que contêm dados de protocolo (não devem aparecer no chat)
