@@ -345,13 +345,10 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
       
       if (response.ok) {
         setIsDeleted(true)
-        // Notificar o componente pai sobre a exclusão
-        if (onDelete) {
-          onDelete(message.id)
-        }
+        // Não notificar o componente pai para remover - manter no estado
         toast({
           title: "Mensagem excluída",
-          description: data.message || "A mensagem foi excluída com sucesso",
+          description: "A mensagem foi excluída e marcada como removida",
           duration: 2000,
         })
         console.log('✅ Mensagem excluída com sucesso:', data)
@@ -367,7 +364,7 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
       })
     }
   }
-  if (isDeleted) return null
+  // Não retornar null quando excluída - manter no DOM com visual diferente
 
   // Função para formatar o horário (mover para o topo do arquivo, se já existir, remova a duplicata)
   function formatTime(timestamp) {
@@ -385,15 +382,30 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
 
   // Aplicando as guidelines de design com melhor contraste
   const hasIconsOrMenu = isPinned || isFavorited || !hideMenu
-  const bubbleBase = `
+  
+  // Estilo base da bolha
+  let bubbleBase = `
     rounded-xl px-4 py-3 text-sm max-w-[75%] shadow-sm
     transition-all duration-200 relative
     ${hasIconsOrMenu ? 'pr-14' : ''}
-    ${isMe
-      ? "bg-primary text-primary-foreground rounded-br-none hover:bg-primary/90"
-      : "bg-card border border-border text-foreground rounded-bl-none hover:bg-accent"
-    }
   `
+  
+  // Aplicar estilo baseado no estado da mensagem
+  if (isDeleted) {
+    // Estilo para mensagem excluída - vermelho
+    bubbleBase += `
+      bg-red-500 text-white rounded-br-none opacity-75
+      ${isMe ? 'rounded-br-none' : 'rounded-bl-none'}
+    `
+  } else {
+    // Estilo normal
+    bubbleBase += `
+      ${isMe
+        ? "bg-primary text-primary-foreground rounded-br-none hover:bg-primary/90"
+        : "bg-card border border-border text-foreground rounded-bl-none hover:bg-accent"
+      }
+    `
+  }
 
   // Não precisamos mais do estado hovered, pois os ícones ficam sempre visíveis
 
@@ -464,10 +476,17 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
           )}
           {/* Conteúdo principal */}
           <div className="message-content">
-            {/* Renderizar texto com emojis se for mensagem de texto */}
-            {(message.tipo === 'texto' || message.type === 'text' || message.type === 'texto')
-              ? renderTextWithEmojis(message.content || message.conteudo)
-              : message.content}
+            {isDeleted ? (
+              <div className="flex items-center gap-2">
+                <Trash2 className="w-4 h-4" />
+                <span className="italic">Esta mensagem foi excluída</span>
+              </div>
+            ) : (
+              /* Renderizar texto com emojis se for mensagem de texto */
+              (message.tipo === 'texto' || message.type === 'text' || message.type === 'texto')
+                ? renderTextWithEmojis(message.content || message.conteudo)
+                : message.content
+            )}
           </div>
         </div>
         {/* Linha compacta de ações/reações/status */}
@@ -496,8 +515,11 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
           </div>
           {/* Ícones e ações - à direita */}
           <div className="flex flex-row items-center gap-2 ml-auto">
-            {/* Ícones de pin e favorito juntos, antes do emoji */}
-            {isPinned && (
+            {/* Desabilitar ações quando mensagem estiver excluída */}
+            {!isDeleted && (
+              <>
+                {/* Ícones de pin e favorito juntos, antes do emoji */}
+                {isPinned && (
               <Pin
                 className={`w-4 h-4 ${isMe ? 'text-primary-foreground' : 'text-primary'}`}
                 title="Mensagem fixada"
@@ -642,6 +664,8 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+            )}
+            </>
             )}
             {/* Horário da mensagem e status de entrega */}
             {isMe && (
