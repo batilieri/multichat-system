@@ -95,24 +95,34 @@ export const useRealtimeUpdates = () => {
             }
             
             const callbacks = callbacksRef.current.get(update.chat_id) || []
-            callbacks.forEach(callback => {
-              try {
-                callback(update)
-              } catch (error) {
-                console.error('❌ Erro ao executar callback:', error)
-              }
-            })
+            // Garantir que callbacks seja sempre um array
+            if (Array.isArray(callbacks)) {
+              callbacks.forEach(callback => {
+                try {
+                  callback(update)
+                } catch (error) {
+                  console.error('❌ Erro ao executar callback:', error)
+                }
+              })
+            } else {
+              console.warn('⚠️ Callbacks não é um array:', callbacks)
+            }
           } else if (update.type === 'chat_updated') {
             // Atualização de chat (sem nova mensagem)
             console.log('🔄 Chat atualizado:', update)
             const callbacks = callbacksRef.current.get(update.chat_id) || []
-            callbacks.forEach(callback => {
-              try {
-                callback(update)
-              } catch (error) {
-                console.error('❌ Erro ao executar callback:', error)
-              }
-            })
+            // Garantir que callbacks seja sempre um array
+            if (Array.isArray(callbacks)) {
+              callbacks.forEach(callback => {
+                try {
+                  callback(update)
+                } catch (error) {
+                  console.error('❌ Erro ao executar callback:', error)
+                }
+              })
+            } else {
+              console.warn('⚠️ Callbacks não é um array:', callbacks)
+            }
           }
         })
 

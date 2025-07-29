@@ -76,7 +76,7 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
       setShowEditModal(false)
     }
   }
-  const isMe = message.isOwn
+  const isMe = message.isOwn || message.from_me || message.fromMe || false
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768
   
   // Debug: verificar se a mensagem é própria
@@ -86,7 +86,8 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
     fromMe: message.fromMe,
     isMe: isMe,
     tipo: message.tipo || message.type,
-    content: message.content || message.conteudo
+    content: message.content || message.conteudo,
+    canEdit: isMe && (message.tipo === 'text' || message.type === 'text' || message.tipo === 'texto' || message.type === 'texto')
   })
   const [popoverSide, setPopoverSide] = useState('top')
   const [popoverAlign, setPopoverAlign] = useState('start')
@@ -179,15 +180,33 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
       type: message.type,
       content: message.content,
       conteudo: message.conteudo,
-      isOwn: message.isOwn
+      isOwn: message.isOwn,
+      from_me: message.from_me,
+      fromMe: message.fromMe
     })
     
     // Verificar se a mensagem pode ser editada (apenas mensagens de texto)
-    if (message.type !== 'texto' && message.type !== 'text') {
-      console.log('❌ Tipo de mensagem não permitido:', message.type)
+    if (message.type !== 'texto' && message.type !== 'text' && message.tipo !== 'texto' && message.tipo !== 'text') {
+      console.log('❌ Tipo de mensagem não permitido:', message.type, message.tipo)
       toast({
         title: "Não é possível editar",
         description: "Apenas mensagens de texto podem ser editadas",
+        duration: 3000,
+      })
+      return
+    }
+    
+    // Verificar se é uma mensagem própria
+    if (!isMe) {
+      console.log('❌ Mensagem não é própria:', {
+        isMe,
+        isOwn: message.isOwn,
+        from_me: message.from_me,
+        fromMe: message.fromMe
+      })
+      toast({
+        title: "Não é possível editar",
+        description: "Apenas suas próprias mensagens podem ser editadas",
         duration: 3000,
       })
       return
@@ -233,14 +252,30 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
       return
     }
 
+    // Verificar se a mensagem tem message_id (necessário para edição)
+    if (!message.message_id) {
+      toast({
+        title: "Erro ao editar",
+        description: "Esta mensagem não pode ser editada (sem ID do WhatsApp)",
+        duration: 3000,
+      })
+      return
+    }
+
     setIsEditing(true)
     
     try {
       console.log('🔄 Enviando edição para API...')
       console.log('   - ID da mensagem:', message.id)
+      console.log('   - Message ID (WhatsApp):', message.message_id)
+      console.log('   - Chat ID:', message.chat?.chat_id)
       console.log('   - Novo texto:', textoLimpo)
       
-      const response = await fetch(`http://localhost:8000/api/mensagens/${message.id}/editar/`, {
+      // Usar URL relativa (proxy redireciona para backend)
+      const apiUrl = `/api/mensagens/${message.id}/editar/`
+      console.log('   - URL da API:', apiUrl)
+      
+      const response = await fetch(apiUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
@@ -276,6 +311,19 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
         })
         
         console.log('✅ Mensagem editada com sucesso:', data)
+        
+        // Forçar atualização da interface
+        if (message.chat?.chat_id) {
+          // Notificar sistema de tempo real sobre a edição
+          const updateEvent = new CustomEvent('messageEdited', {
+            detail: {
+              chat_id: message.chat.chat_id,
+              message_id: message.id,
+              new_content: textoLimpo
+            }
+          })
+          window.dispatchEvent(updateEvent)
+        }
       } else {
         // Tratar diferentes tipos de erro
         let errorMessage = data.error || data.details || `Erro ${response.status}: ${response.statusText}`
@@ -290,6 +338,10 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
           } else if (data.error?.includes('texto')) {
             errorMessage = "Apenas mensagens de texto podem ser editadas"
           }
+        } else if (response.status === 401) {
+          errorMessage = "Sessão expirada. Faça login novamente."
+        } else if (response.status === 403) {
+          errorMessage = "Você não tem permissão para editar esta mensagem"
         }
         
         throw new Error(errorMessage)
@@ -423,7 +475,6 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       className={`w-full ${isMe ? 'flex justify-end' : 'flex justify-start'}`}
-      // Removido onMouseEnter/onMouseLeave/onFocus/onBlur
     >
       {/* Avatar do contato para mensagens recebidas */}
       {!isMe && profilePicture && (
@@ -501,94 +552,16 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
                 className="grid grid-cols-3 gap-1 flex-none"
                 style={{ maxWidth: '120px' }}
               >
-                {reactions.map((r, i) => (
-                  <EmojiBadge
-                    key={i}
-                    onClick={() => handleAddReaction(r)}
-                    title="Remover reação"
-                    label={"Remover reação " + r}
-                  >
-                    {r}
-                  </EmojiBadge>
+                {reactions.slice(0, 6).map((reaction, index) => (
+                  <EmojiBadge key={index} emoji={reaction} />
                 ))}
               </motion.div>
             )}
           </div>
-          {/* Ícones e ações - à direita */}
-          <div className="flex flex-row items-center gap-2 ml-auto">
-            {/* Desabilitar ações quando mensagem estiver excluída */}
-            {!isDeleted && (
-              <>
-                {/* Ícones de pin e favorito juntos, antes do emoji */}
-                {isPinned && (
-              <Pin
-                className={`w-4 h-4 ${isMe ? 'text-primary-foreground' : 'text-primary'}`}
-                title="Mensagem fixada"
-              />
-            )}
-            {isFavorited && (
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                className="flex items-center justify-center"
-              >
-                <Star className="w-4 h-4 text-yellow-500" title="Favorita" />
-              </motion.div>
-            )}
-            {/* Botão de reações */}
-            <Popover open={showReactionPopover} onOpenChange={open => {
-              setShowReactionPopover(open)
-              if (!open) setShowFullPicker(false)
-            }}>
-              <motion.button
-                ref={reactionButtonRef}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={e => {
-                  e.stopPropagation();
-                  if (reactionButtonRef.current) {
-                    const rect = reactionButtonRef.current.getBoundingClientRect();
-                    setAnchorRect(rect);
-                    // Detecta se está próximo da borda inferior
-                    const isBottom = rect.bottom + 220 > window.innerHeight; // 220px altura estimada do popover
-                    // Detecta se está próximo da borda direita
-                    const isRight = rect.right + 320 > window.innerWidth; // 320px largura estimada do popover
-                    setPopoverSide(isBottom ? 'top' : 'bottom');
-                    setPopoverAlign(isRight ? 'end' : 'start');
-                  }
-                  setShowReactionPopover(true)
-                }}
-                className="p-1 bg-background border border-border rounded-full shadow-sm hover:bg-accent transition-all duration-200 flex items-center justify-center w-7 h-7 min-w-0 min-h-0"
-                title="Reagir"
-                style={{ lineHeight: 1 }}
-              >
-                <SmilePlus className="w-4 h-4 text-muted-foreground" />
-              </motion.button>
-              {showReactionPopover && (
-                <PopoverContent
-                  anchorRect={anchorRect}
-                  onClose={() => setShowReactionPopover(false)}
-                  side={popoverSide}
-                  align={popoverAlign}
-                  sideOffset={16}
-                  className="bg-popover border border-border p-3 rounded-xl shadow-lg max-h-[60vh] overflow-y-auto"
-                >
-                  {!showFullPicker ? (
-                    <EmojiReactionBar
-                      onSelect={handleAddReaction}
-                      onOpenFullPicker={() => setShowFullPicker(true)}
-                      isReversed={isMe}
-                    />
-                  ) : (
-                    <EmojiPicker
-                      onSelect={emoji => { handleAddReaction(emoji); setShowReactionPopover(false); setShowFullPicker(false) }}
-                      onClose={() => { setShowFullPicker(false) }}
-                    />
-                  )}
-                </PopoverContent>
-              )}
-            </Popover>
-            {/* Menu de opções */}
+          
+          {/* Ações à direita */}
+          <div className="flex items-center gap-1">
+            {/* Menu de ações */}
             {!hideMenu && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -648,25 +621,26 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
                   )}
                   <DropdownMenuSeparator />
                   {/* Editar - só para mensagens do usuário */}
-                  {isMe && (
-                    <DropdownMenuItem onClick={handleEdit}>
-                      <Pencil className="w-4 h-4 mr-2" /> Editar
-                    </DropdownMenuItem>
-                  )}
-                  {/* Debug: mostrar quando não é própria */}
-                  {!isMe && (message.tipo === 'text' || message.type === 'text') && (
-                    <DropdownMenuItem disabled>
-                      <Pencil className="w-4 h-4 mr-2" /> Editar (não própria)
-                    </DropdownMenuItem>
-                  )}
+                  {(() => {
+                    const canEdit = isMe && (message.tipo === 'text' || message.type === 'text' || message.tipo === 'texto' || message.type === 'texto')
+                    console.log(`🔍 Renderizando opção editar para mensagem ${message.id}:`, {
+                      isMe,
+                      messageTipo: message.tipo,
+                      messageType: message.type,
+                      canEdit
+                    })
+                    return canEdit ? (
+                      <DropdownMenuItem onClick={handleEdit}>
+                        <Pencil className="w-4 h-4 mr-2" /> Editar
+                      </DropdownMenuItem>
+                    ) : null
+                  })()}
                   {/* Apagar - sempre, destructive */}
                   <DropdownMenuItem variant="destructive" onClick={handleDelete}>
                     <Trash2 className="w-4 h-4 mr-2" /> Apagar
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            )}
-            </>
             )}
             {/* Horário da mensagem e status de entrega */}
             {isMe && (
@@ -683,17 +657,96 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
             </span>
           </div>
         </div>
-        {/* Modais para Forward, Info, Report */}
-        {showReportModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-            <div className="bg-white dark:bg-zinc-900 rounded-xl p-6 shadow-xl min-w-[300px]">
-              <h2 className="font-bold text-lg mb-2">Denunciar mensagem</h2>
-              <div className="text-sm mb-4">Funcionalidade de denúncia mockada.</div>
-              <button className="px-4 py-2 rounded bg-primary text-primary-foreground" onClick={() => setShowReportModal(false)}>Fechar</button>
+      </motion.div>
+      
+      {/* Modal de edição */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4 shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Editar mensagem</h2>
+              <button 
+                onClick={() => setShowEditModal(false)}
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                disabled={isEditing}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Texto original:
+              </label>
+              <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded text-sm text-gray-600 dark:text-gray-300 mb-4 border">
+                {message.content || message.conteudo || 'Sem conteúdo'}
+              </div>
+              
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Novo texto:
+              </label>
+              <textarea
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
+                rows={4}
+                placeholder="Digite o novo texto..."
+                autoFocus
+                disabled={isEditing}
+              />
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {editText.length}/4096 caracteres
+              </div>
+            </div>
+            
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowEditModal(false)}
+                disabled={isEditing}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                disabled={!editText.trim() || isEditing}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 transition-colors flex items-center gap-2"
+              >
+                {isEditing ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Editando...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Salvar
+                  </>
+                )}
+              </button>
             </div>
           </div>
-        )}
-      </motion.div>
+        </div>
+      )}
+      
+      {/* Modais para Forward, Info, Report */}
+      {showReportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl p-6 shadow-xl min-w-[300px]">
+            <h2 className="font-bold text-lg mb-2">Denunciar mensagem</h2>
+            <div className="text-sm mb-4">Funcionalidade de denúncia mockada.</div>
+            <button className="px-4 py-2 rounded bg-primary text-primary-foreground" onClick={() => setShowReportModal(false)}>Fechar</button>
+          </div>
+        </div>
+      )}
     </motion.div>
   )
 }
@@ -1052,50 +1105,78 @@ function renderMessageContent(message) {
 
   return (
     <>
-      {/* Modal de edição simplificado para teste */}
+      {/* Modal de edição */}
       {showEditModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4 shadow-xl">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold">Editar mensagem</h2>
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Editar mensagem</h2>
               <button 
                 onClick={() => setShowEditModal(false)}
-                className="text-gray-500 hover:text-gray-700"
+                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                disabled={isEditing}
               >
-                ✕
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
             
             <div className="mb-4">
-              <label className="block text-sm font-medium mb-2">Texto original:</label>
-              <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded text-sm mb-4">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Texto original:
+              </label>
+              <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded text-sm text-gray-600 dark:text-gray-300 mb-4 border">
                 {message.content || message.conteudo || 'Sem conteúdo'}
               </div>
               
-              <label className="block text-sm font-medium mb-2">Novo texto:</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Novo texto:
+              </label>
               <textarea
                 value={editText}
                 onChange={(e) => setEditText(e.target.value)}
-                className="w-full p-2 border rounded resize-none"
+                onKeyDown={handleKeyDown}
+                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
                 rows={4}
                 placeholder="Digite o novo texto..."
                 autoFocus
+                disabled={isEditing}
               />
+              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {editText.length}/4096 caracteres
+              </div>
             </div>
             
-            <div className="flex gap-2 justify-end">
+            <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowEditModal(false)}
-                className="px-4 py-2 border rounded hover:bg-gray-100"
+                disabled={isEditing}
+                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleSaveEdit}
-                disabled={!editText.trim()}
-                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+                disabled={!editText.trim() || isEditing}
+                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 transition-colors flex items-center gap-2"
               >
-                Salvar
+                {isEditing ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Editando...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Salvar
+                  </>
+                )}
               </button>
             </div>
           </div>

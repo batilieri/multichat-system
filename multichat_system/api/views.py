@@ -1069,6 +1069,13 @@ class MensagemViewSet(viewsets.ModelViewSet):
     def editar_mensagem(self, request, pk=None):
         """
         Edita uma mensagem no WhatsApp e no banco de dados.
+        
+        Requisitos:
+        - Mensagem deve existir no banco
+        - Mensagem deve ter message_id (ID do WhatsApp)
+        - Mensagem deve ser from_me=True (enviada pelo usuário)
+        - Mensagem deve ser do tipo texto
+        - Usuário deve ter permissão para editar mensagens do cliente
         """
         try:
             # Log detalhado para debug
@@ -1077,7 +1084,7 @@ class MensagemViewSet(viewsets.ModelViewSet):
             # Verificar se a mensagem existe
             try:
                 mensagem = self.get_object()
-                logger.info(f'✅ Mensagem encontrada: ID={mensagem.id}, message_id={mensagem.message_id}, from_me={mensagem.from_me}')
+                logger.info(f'✅ Mensagem encontrada: ID={mensagem.id}, message_id={mensagem.message_id}, from_me={mensagem.from_me}, tipo={mensagem.tipo}')
             except Mensagem.DoesNotExist:
                 logger.error(f'❌ Mensagem não encontrada: ID={pk}')
                 return Response({
@@ -1087,37 +1094,73 @@ class MensagemViewSet(viewsets.ModelViewSet):
             
             # Verificar se a mensagem tem message_id (ID do WhatsApp)
             if not mensagem.message_id:
+                logger.warning(f'⚠️ Mensagem {mensagem.id} não tem message_id')
                 return Response({
-                    'error': 'Esta mensagem não pode ser editada (sem ID do WhatsApp)'
+                    'error': 'Esta mensagem não pode ser editada',
+                    'details': 'A mensagem não possui ID do WhatsApp necessário para edição'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             # Verificar se é uma mensagem enviada pelo usuário (from_me=True)
             if not mensagem.from_me:
+                logger.warning(f'⚠️ Tentativa de editar mensagem não enviada pelo usuário: ID={mensagem.id}')
                 return Response({
-                    'error': 'Apenas mensagens enviadas por você podem ser editadas'
+                    'error': 'Apenas mensagens enviadas por você podem ser editadas',
+                    'details': 'Esta mensagem foi recebida, não enviada'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             # Verificar se é uma mensagem de texto
             if mensagem.tipo not in ['texto', 'text']:
+                logger.warning(f'⚠️ Tentativa de editar mensagem não-texto: tipo={mensagem.tipo}')
                 return Response({
-                    'error': 'Apenas mensagens de texto podem ser editadas'
+                    'error': 'Apenas mensagens de texto podem ser editadas',
+                    'details': f'Tipo de mensagem atual: {mensagem.tipo}'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             # Obter o novo texto da requisição
             novo_texto = request.data.get('novo_texto')
             if not novo_texto or not novo_texto.strip():
                 return Response({
-                    'error': 'Novo texto é obrigatório'
+                    'error': 'Novo texto é obrigatório',
+                    'details': 'O campo novo_texto não pode estar vazio'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             novo_texto = novo_texto.strip()
             
+            # Validar tamanho do texto (limite do WhatsApp)
+            if len(novo_texto) > 4096:
+                return Response({
+                    'error': 'Texto muito longo',
+                    'details': f'O texto tem {len(novo_texto)} caracteres, máximo permitido: 4096'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Verificar se o texto realmente mudou
+            if novo_texto == mensagem.conteudo:
+                return Response({
+                    'error': 'Texto não foi alterado',
+                    'details': 'O novo texto é idêntico ao texto atual'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Verificar permissões do usuário
+            user = request.user
+            if not (user.is_superuser or 
+                    (hasattr(user, 'tipo_usuario') and user.tipo_usuario == 'admin') or
+                    (hasattr(user, 'tipo_usuario') and user.tipo_usuario == 'cliente' and mensagem.chat.cliente == user.cliente) or
+                    (hasattr(user, 'tipo_usuario') and user.tipo_usuario == 'colaborador' and mensagem.chat.cliente == user.cliente)):
+                logger.warning(f'⚠️ Usuário {user.username} tentou editar mensagem sem permissão')
+                return Response({
+                    'error': 'Você não tem permissão para editar esta mensagem',
+                    'details': 'Apenas o proprietário do chat ou administradores podem editar mensagens'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
             # Buscar a instância WhatsApp do cliente
             try:
                 instancia = WhatsappInstance.objects.get(cliente=mensagem.chat.cliente)
+                logger.info(f'✅ Instância encontrada: {instancia.instance_id}')
             except WhatsappInstance.DoesNotExist:
+                logger.error(f'❌ Instância WhatsApp não encontrada para cliente: {mensagem.chat.cliente}')
                 return Response({
-                    'error': 'Instância WhatsApp não encontrada para este cliente'
+                    'error': 'Instância WhatsApp não encontrada',
+                    'details': 'Este cliente não possui uma instância WhatsApp configurada'
                 }, status=status.HTTP_404_NOT_FOUND)
             
             # Importar e usar a classe EditarMensagem
@@ -1133,7 +1176,8 @@ class MensagemViewSet(viewsets.ModelViewSet):
             except ImportError as e:
                 logger.error(f'❌ Erro ao importar EditarMensagem: {e}')
                 return Response({
-                    'error': 'Erro interno: módulo de edição não encontrado'
+                    'error': 'Erro interno: módulo de edição não encontrado',
+                    'details': str(e)
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
             # Criar instância do editor
@@ -1161,7 +1205,9 @@ class MensagemViewSet(viewsets.ModelViewSet):
                     'success': True,
                     'message': 'Mensagem editada com sucesso',
                     'wapi_result': resultado_wapi,
-                    'novo_texto': novo_texto
+                    'novo_texto': novo_texto,
+                    'message_id': mensagem.message_id,
+                    'chat_id': mensagem.chat.chat_id
                 }, status=status.HTTP_200_OK)
             else:
                 # Se falhou na W-API, retornar erro
@@ -1169,13 +1215,15 @@ class MensagemViewSet(viewsets.ModelViewSet):
                 
                 return Response({
                     'error': 'Erro ao editar mensagem no WhatsApp',
-                    'details': resultado_wapi.get('erro', 'Erro desconhecido')
+                    'details': resultado_wapi.get('erro', 'Erro desconhecido na W-API'),
+                    'wapi_result': resultado_wapi
                 }, status=status.HTTP_400_BAD_REQUEST)
                 
         except Exception as e:
             logger.error(f'❌ Erro ao editar mensagem: {e}')
             return Response({
-                'error': 'Erro interno do servidor'
+                'error': 'Erro interno do servidor',
+                'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
