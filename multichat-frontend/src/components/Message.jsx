@@ -89,10 +89,27 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
     content: message.content || message.conteudo,
     canEdit: isMe && (message.tipo === 'text' || message.type === 'text' || message.tipo === 'texto' || message.type === 'texto')
   })
-  const [popoverSide, setPopoverSide] = useState('top')
-  const [popoverAlign, setPopoverAlign] = useState('start')
   const reactionButtonRef = useRef(null)
-  const [anchorRect, setAnchorRect] = useState(null)
+  const popoverRef = useRef(null)
+
+  // Fechar popover quando clicar fora
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (popoverRef.current && !popoverRef.current.contains(event.target) && 
+          reactionButtonRef.current && !reactionButtonRef.current.contains(event.target)) {
+        setShowReactionPopover(false)
+        setShowFullPicker(false)
+      }
+    }
+    
+    if (showReactionPopover) {
+      document.addEventListener('mousedown', handleClickOutside)
+    }
+    
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showReactionPopover])
 
   // Handlers para cada ação do menu
   const handleReply = () => {
@@ -149,12 +166,8 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
     setIsPinned((prev) => !prev)
   }
   const handleReact = () => {
-    if (reactionButtonRef.current) {
-      const rect = reactionButtonRef.current.getBoundingClientRect()
-      setPopoverSide(rect.top < 250 ? 'bottom' : 'top')
-    }
     setShowReactionPopover(true)
-    setShowFullPicker(true)
+    setShowFullPicker(false) // Começar com a barra de emojis rápidos
   }
   const handleInfo = () => {
     if (typeof onShowInfo === 'function') {
@@ -609,45 +622,43 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
           {/* Ações à direita */}
           <div className="flex items-center gap-1">
             {/* Botão de reação */}
-            <Popover open={showReactionPopover} onOpenChange={setShowReactionPopover}>
-              <PopoverTrigger asChild>
-                <motion.button
-                  ref={reactionButtonRef}
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleReact}
-                  className="p-1.5 rounded-full hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-ring"
-                  title="Adicionar reação"
-                >
-                  <SmilePlus className="w-4 h-4 text-muted-foreground" />
-                </motion.button>
-              </PopoverTrigger>
-              <PopoverContent
-                anchorRect={anchorRect}
-                onClose={() => setShowReactionPopover(false)}
-                side={popoverSide}
-                align={popoverAlign}
-                sideOffset={16}
-                className="bg-popover border border-border p-3 rounded-xl shadow-lg max-h-[60vh] overflow-y-auto"
+            <div className="relative">
+              <motion.button
+                ref={reactionButtonRef}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleReact}
+                className="p-1.5 rounded-full hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-ring"
+                title="Adicionar reação"
               >
-                {!showFullPicker ? (
-                  <EmojiReactionBar
-                    onSelect={handleAddReaction}
-                    onOpenFullPicker={() => setShowFullPicker(true)}
-                    isReversed={false}
-                  />
-                ) : (
-                  <EmojiPicker
-                    onSelect={emoji => { 
-                      handleAddReaction(emoji); 
-                      setShowReactionPopover(false); 
-                      setShowFullPicker(false) 
-                    }}
-                    onClose={() => { setShowFullPicker(false) }}
-                  />
-                )}
-              </PopoverContent>
-            </Popover>
+                <SmilePlus className="w-4 h-4 text-muted-foreground" />
+              </motion.button>
+              
+              {/* Popover simples */}
+              {showReactionPopover && (
+                <div 
+                  ref={popoverRef}
+                  className="absolute bottom-full right-0 mb-2 bg-popover border border-border p-3 rounded-xl shadow-lg max-h-[60vh] overflow-y-auto z-50"
+                >
+                  {!showFullPicker ? (
+                    <EmojiReactionBar
+                      onSelect={handleAddReaction}
+                      onOpenFullPicker={() => setShowFullPicker(true)}
+                      isReversed={false}
+                    />
+                  ) : (
+                    <EmojiPicker
+                      onSelect={emoji => { 
+                        handleAddReaction(emoji); 
+                        setShowReactionPopover(false); 
+                        setShowFullPicker(false) 
+                      }}
+                      onClose={() => { setShowFullPicker(false) }}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
             
             {/* Menu de ações */}
             {!hideMenu && (
