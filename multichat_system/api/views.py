@@ -1226,6 +1226,61 @@ class MensagemViewSet(viewsets.ModelViewSet):
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @action(detail=True, methods=['post'], url_path='reagir')
+    def reagir_mensagem(self, request, pk=None):
+        """
+        Adiciona ou remove uma reação de uma mensagem
+        """
+        try:
+            mensagem = self.get_object()
+            
+            # Validar dados da requisição
+            emoji = request.data.get('emoji')
+            if not emoji:
+                return Response(
+                    {'erro': 'Emoji é obrigatório'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Obter reações atuais
+            reacoes = mensagem.reacoes or []
+            
+            # Adicionar ou remover reação
+            if emoji in reacoes:
+                # Remover reação
+                reacoes.remove(emoji)
+                action = 'removida'
+            else:
+                # Adicionar reação
+                reacoes.append(emoji)
+                action = 'adicionada'
+            
+            # Salvar no banco
+            mensagem.reacoes = reacoes
+            mensagem.save()
+            
+            logger.info(f'Reação {action}: emoji={emoji}, mensagem_id={mensagem.id}')
+            
+            return Response({
+                'sucesso': True,
+                'acao': action,
+                'emoji': emoji,
+                'reacoes': reacoes,
+                'mensagem': f'Reação {action} com sucesso'
+            })
+            
+        except Mensagem.DoesNotExist:
+            return Response(
+                {'erro': 'Mensagem não encontrada'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f'Erro ao gerenciar reação: {str(e)}')
+            return Response(
+                {'erro': f'Erro interno: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class WebhookEventViewSet(viewsets.ModelViewSet):
     """

@@ -164,6 +164,9 @@ class Mensagem(models.Model):
     # Timestamps
     data_envio = models.DateTimeField(auto_now_add=True, verbose_name="Data de Envio")
     
+    # Campo para reações (JSON array de emojis)
+    reacoes = models.JSONField(default=list, blank=True, verbose_name="Reações")
+    
     class Meta:
         verbose_name = "Mensagem"
         verbose_name_plural = "Mensagens"

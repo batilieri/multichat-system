@@ -50,7 +50,7 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
   const [showReactionButton, setShowReactionButton] = useState(false)
   const [showReactionPopover, setShowReactionPopover] = useState(false)
   const [showFullPicker, setShowFullPicker] = useState(false)
-  const [reactions, setReactions] = useState(message.reactions || [])
+  const [reactions, setReactions] = useState(message.reacoes || message.reactions || [])
   const [isFavorited, setIsFavorited] = useState(message.isFavorited || false)
   const [isPinned, setIsPinned] = useState(message.isPinned || false)
   const [showInfoModal, setShowInfoModal] = useState(false)
@@ -461,11 +461,58 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
 
   // Não precisamos mais do estado hovered, pois os ícones ficam sempre visíveis
 
-  function handleAddReaction(emoji) {
-    if (reactions.includes(emoji)) {
-      setReactions((prev) => prev.filter((r) => r !== emoji))
-    } else {
-      setReactions((prev) => [...prev, emoji])
+  async function handleAddReaction(emoji) {
+    try {
+      console.log('🔄 Adicionando reação:', emoji, 'para mensagem:', message.id)
+      
+      // Chamar API para salvar reação
+      const response = await fetch(`/api/mensagens/${message.id}/reagir/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ emoji })
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok) {
+        // Atualizar estado local com as reações do banco
+        setReactions(data.reacoes || [])
+        
+        console.log('✅ Reação salva:', data)
+        
+        // Fechar popover
+        setShowReactionPopover(false)
+        setShowFullPicker(false)
+        
+        // Notificar sistema de tempo real
+        if (message.chat?.chat_id) {
+          const updateEvent = new CustomEvent('messageReactionUpdated', {
+            detail: {
+              chat_id: message.chat.chat_id,
+              message_id: message.id,
+              reacoes: data.reacoes
+            }
+          })
+          window.dispatchEvent(updateEvent)
+        }
+      } else {
+        console.error('❌ Erro ao salvar reação:', data)
+        toast({
+          title: "Erro",
+          description: data.erro || "Não foi possível salvar a reação",
+          duration: 3000,
+        })
+      }
+    } catch (error) {
+      console.error('❌ Erro ao adicionar reação:', error)
+      toast({
+        title: "Erro",
+        description: "Erro de conexão ao salvar reação",
+        duration: 3000,
+      })
     }
   }
 
@@ -561,6 +608,47 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
           
           {/* Ações à direita */}
           <div className="flex items-center gap-1">
+            {/* Botão de reação */}
+            <Popover open={showReactionPopover} onOpenChange={setShowReactionPopover}>
+              <PopoverTrigger asChild>
+                <motion.button
+                  ref={reactionButtonRef}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleReact}
+                  className="p-1.5 rounded-full hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-ring"
+                  title="Adicionar reação"
+                >
+                  <SmilePlus className="w-4 h-4 text-muted-foreground" />
+                </motion.button>
+              </PopoverTrigger>
+              <PopoverContent
+                anchorRect={anchorRect}
+                onClose={() => setShowReactionPopover(false)}
+                side={popoverSide}
+                align={popoverAlign}
+                sideOffset={16}
+                className="bg-popover border border-border p-3 rounded-xl shadow-lg max-h-[60vh] overflow-y-auto"
+              >
+                {!showFullPicker ? (
+                  <EmojiReactionBar
+                    onSelect={handleAddReaction}
+                    onOpenFullPicker={() => setShowFullPicker(true)}
+                    isReversed={false}
+                  />
+                ) : (
+                  <EmojiPicker
+                    onSelect={emoji => { 
+                      handleAddReaction(emoji); 
+                      setShowReactionPopover(false); 
+                      setShowFullPicker(false) 
+                    }}
+                    onClose={() => { setShowFullPicker(false) }}
+                  />
+                )}
+              </PopoverContent>
+            </Popover>
+            
             {/* Menu de ações */}
             {!hideMenu && (
               <DropdownMenu>
@@ -659,6 +747,17 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
         </div>
       </motion.div>
       
+      {/* Modais para Forward, Info, Report */}
+      {showReportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white dark:bg-zinc-900 rounded-xl p-6 shadow-xl min-w-[300px]">
+            <h2 className="font-bold text-lg mb-2">Denunciar mensagem</h2>
+            <div className="text-sm mb-4">Funcionalidade de denúncia mockada.</div>
+            <button className="px-4 py-2 rounded bg-primary text-primary-foreground" onClick={() => setShowReportModal(false)}>Fechar</button>
+          </div>
+        </div>
+      )}
+      
       {/* Modal de edição */}
       {showEditModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
@@ -733,17 +832,6 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
                 )}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-      
-      {/* Modais para Forward, Info, Report */}
-      {showReportModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white dark:bg-zinc-900 rounded-xl p-6 shadow-xl min-w-[300px]">
-            <h2 className="font-bold text-lg mb-2">Denunciar mensagem</h2>
-            <div className="text-sm mb-4">Funcionalidade de denúncia mockada.</div>
-            <button className="px-4 py-2 rounded bg-primary text-primary-foreground" onClick={() => setShowReportModal(false)}>Fechar</button>
           </div>
         </div>
       )}
@@ -1102,88 +1190,6 @@ function renderMessageContent(message) {
         </motion.div>
       )
   }
-
-  return (
-    <>
-      {/* Modal de edição */}
-      {showEditModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-full max-w-md mx-4 shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Editar mensagem</h2>
-              <button 
-                onClick={() => setShowEditModal(false)}
-                className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
-                disabled={isEditing}
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-            
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Texto original:
-              </label>
-              <div className="p-3 bg-gray-100 dark:bg-gray-700 rounded text-sm text-gray-600 dark:text-gray-300 mb-4 border">
-                {message.content || message.conteudo || 'Sem conteúdo'}
-              </div>
-              
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Novo texto:
-              </label>
-              <textarea
-                value={editText}
-                onChange={(e) => setEditText(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="w-full p-3 border border-gray-300 dark:border-gray-600 rounded resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent dark:bg-gray-700 dark:text-white"
-                rows={4}
-                placeholder="Digite o novo texto..."
-                autoFocus
-                disabled={isEditing}
-              />
-              <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                {editText.length}/4096 caracteres
-              </div>
-            </div>
-            
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setShowEditModal(false)}
-                disabled={isEditing}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleSaveEdit}
-                disabled={!editText.trim() || isEditing}
-                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50 transition-colors flex items-center gap-2"
-              >
-                {isEditing ? (
-                  <>
-                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                    </svg>
-                    Editando...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    Salvar
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  )
 }
 
 export { MessageType };
