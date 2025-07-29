@@ -476,16 +476,17 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
           )}
           {/* Conteúdo principal */}
           <div className="message-content">
-            {isDeleted ? (
-              <div className="flex items-center gap-2">
+            {/* Mostrar texto original da mensagem */}
+            {(message.tipo === 'texto' || message.type === 'text' || message.type === 'texto')
+              ? renderTextWithEmojis(message.content || message.conteudo)
+              : message.content}
+            
+            {/* Indicador de exclusão se a mensagem foi excluída */}
+            {isDeleted && (
+              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/20">
                 <Trash2 className="w-4 h-4" />
-                <span className="italic">Esta mensagem foi excluída</span>
+                <span className="italic text-sm opacity-90">Esta mensagem foi excluída</span>
               </div>
-            ) : (
-              /* Renderizar texto com emojis se for mensagem de texto */
-              (message.tipo === 'texto' || message.type === 'text' || message.type === 'texto')
-                ? renderTextWithEmojis(message.content || message.conteudo)
-                : message.content
             )}
           </div>
         </div>
