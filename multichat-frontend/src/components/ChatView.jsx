@@ -170,12 +170,31 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
   const handleNewMessage = useCallback((newMessage) => {
     console.log('🆕 Nova mensagem recebida em tempo real:', newMessage)
     
-    // Verificar se a mensagem já existe para evitar duplicação
     setMessages(prevMessages => {
+      // Verificar se a mensagem já existe para evitar duplicação
       const messageExists = prevMessages.some(msg => msg.id === newMessage.id)
       if (messageExists) {
         console.log('⚠️ Mensagem já existe, ignorando:', newMessage.id)
         return prevMessages
+      }
+      
+      // Verificar se existe uma mensagem temporária que pode ser atualizada
+      const tempMessageIndex = prevMessages.findIndex(msg => 
+        msg.isTemporary && 
+        msg.content === newMessage.content && 
+        msg.from_me === true &&
+        Math.abs(new Date(msg.timestamp) - new Date(newMessage.timestamp)) < 5000 // 5 segundos de tolerância
+      )
+      
+      if (tempMessageIndex !== -1) {
+        console.log('🔄 Atualizando mensagem temporária com dados do webhook:', newMessage.id)
+        // Atualizar a mensagem temporária com os dados reais
+        const updatedMessages = [...prevMessages]
+        updatedMessages[tempMessageIndex] = {
+          ...newMessage,
+          isTemporary: false // Remove a flag temporária
+        }
+        return updatedMessages
       }
       
       // Transformar mensagem para o formato esperado
@@ -396,8 +415,8 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
               return true
             })
             
-            // Remover mensagens temporárias que foram confirmadas pelo backend
-            const messagesWithoutTemps = prevMessages.filter(msg => {
+            // Substituir mensagens temporárias por versões reais do backend (sem remover)
+            const updatedMessages = prevMessages.map(msg => {
               // Se a mensagem é temporária, verificar se existe uma versão real do backend
               if (msg.isTemporary) {
                 const realMessage = newMessages.find(realMsg => 
@@ -406,19 +425,23 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
                   Math.abs(new Date(realMsg.timestamp) - new Date(msg.timestamp)) < 5000 // 5 segundos de tolerância
                 )
                 if (realMessage) {
-                  console.log('🔄 Substituindo mensagem temporária por versão real:', realMessage.id)
-                  return false // Remove a temporária
+                  console.log('🔄 Atualizando mensagem temporária com dados reais:', realMessage.id)
+                  // Retorna a versão real, mantendo a posição na lista
+                  return {
+                    ...realMessage,
+                    isTemporary: false // Remove a flag temporária
+                  }
                 }
               }
-              return true // Mantém a mensagem
+              return msg // Mantém a mensagem como está
             })
             
             if (trulyNewMessages.length > 0) {
               console.log(`✅ Adicionando ${trulyNewMessages.length} mensagens novas`)
-              return [...messagesWithoutTemps, ...trulyNewMessages]
+              return [...updatedMessages, ...trulyNewMessages]
             }
             
-            return messagesWithoutTemps
+            return updatedMessages
           })
         }
       } catch (error) {
