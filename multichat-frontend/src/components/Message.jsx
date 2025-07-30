@@ -14,7 +14,6 @@ import {
   Info,
   CornerUpLeft,
   Copy,
-  Smile,
   Share2,
   Pin,
   Star,
@@ -25,13 +24,11 @@ import {
 import EmojiBadge from './EmojiBadge'
 import { Popover, PopoverTrigger, PopoverContent } from './ui/popover'
 import { Slider } from './ui/slider'
-import { EmojiReactionBar } from './EmojiReactionBar'
 import Emoji from './Emoji'
 import EmojiRegex from 'emoji-regex'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from './ui/dropdown-menu'
 import { useToast } from "../components/ui/use-toast"
 import { togglePinMessage, toggleFavoriteMessage } from '../data/mock/messages'
-import EmojiPicker from './EmojiPicker'
 import { getAllChats } from '../data/mock/chats'
 
 // Tipos de mensagem suportados
@@ -47,9 +44,6 @@ const MessageType = {
 const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShowInfo, onDelete }) => {
   // Remover log de debug excessivo
   // console.log('DEBUG MESSAGE OBJETO:', message);
-  const [showReactionButton, setShowReactionButton] = useState(false)
-  const [showReactionPopover, setShowReactionPopover] = useState(false)
-  const [showFullPicker, setShowFullPicker] = useState(false)
   const [reactions, setReactions] = useState(message.reacoes || message.reactions || [])
   const [isFavorited, setIsFavorited] = useState(message.isFavorited || false)
   const [isPinned, setIsPinned] = useState(message.isPinned || false)
@@ -89,27 +83,9 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
     content: message.content || message.conteudo,
     canEdit: isMe && (message.tipo === 'text' || message.type === 'text' || message.tipo === 'texto' || message.type === 'texto')
   })
-  const reactionButtonRef = useRef(null)
-  const popoverRef = useRef(null)
 
-  // Fechar popover quando clicar fora
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (popoverRef.current && !popoverRef.current.contains(event.target) && 
-          reactionButtonRef.current && !reactionButtonRef.current.contains(event.target)) {
-        setShowReactionPopover(false)
-        setShowFullPicker(false)
-      }
-    }
-    
-    if (showReactionPopover) {
-      document.addEventListener('mousedown', handleClickOutside)
-    }
-    
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [showReactionPopover])
+
+
 
   // Handlers para cada ação do menu
   const handleReply = () => {
@@ -164,10 +140,6 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
   const handlePin = () => {
     togglePinMessage(message.id)
     setIsPinned((prev) => !prev)
-  }
-  const handleReact = () => {
-    setShowReactionPopover(true)
-    setShowFullPicker(false) // Começar com a barra de emojis rápidos
   }
   const handleInfo = () => {
     if (typeof onShowInfo === 'function') {
@@ -474,60 +446,7 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
 
   // Não precisamos mais do estado hovered, pois os ícones ficam sempre visíveis
 
-  async function handleAddReaction(emoji) {
-    try {
-      console.log('🔄 Adicionando reação:', emoji, 'para mensagem:', message.id)
-      
-      // Chamar API para salvar reação
-      const response = await fetch(`/api/mensagens/${message.id}/reagir/`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ emoji })
-      })
-      
-      const data = await response.json()
-      
-      if (response.ok) {
-        // Atualizar estado local com as reações do banco
-        setReactions(data.reacoes || [])
-        
-        console.log('✅ Reação salva:', data)
-        
-        // Fechar popover
-        setShowReactionPopover(false)
-        setShowFullPicker(false)
-        
-        // Notificar sistema de tempo real
-        if (message.chat?.chat_id) {
-          const updateEvent = new CustomEvent('messageReactionUpdated', {
-            detail: {
-              chat_id: message.chat.chat_id,
-              message_id: message.id,
-              reacoes: data.reacoes
-            }
-          })
-          window.dispatchEvent(updateEvent)
-        }
-      } else {
-        console.error('❌ Erro ao salvar reação:', data)
-        toast({
-          title: "Erro",
-          description: data.erro || "Não foi possível salvar a reação",
-          duration: 3000,
-        })
-      }
-    } catch (error) {
-      console.error('❌ Erro ao adicionar reação:', error)
-      toast({
-        title: "Erro",
-        description: "Erro de conexão ao salvar reação",
-        duration: 3000,
-      })
-    }
-  }
+
 
   return (
     <motion.div
@@ -621,44 +540,15 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
           
           {/* Ações à direita */}
           <div className="flex items-center gap-1">
-            {/* Botão de reação */}
-            <div className="relative">
-              <motion.button
-                ref={reactionButtonRef}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleReact}
-                className="p-1.5 rounded-full hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-ring"
-                title="Adicionar reação"
-              >
-                <SmilePlus className="w-4 h-4 text-muted-foreground" />
-              </motion.button>
-              
-              {/* Popover simples */}
-              {showReactionPopover && (
-                <div 
-                  ref={popoverRef}
-                  className="absolute bottom-full right-0 mb-2 bg-popover border border-border p-3 rounded-xl shadow-lg max-h-[60vh] overflow-y-auto z-50"
-                >
-                  {!showFullPicker ? (
-                    <EmojiReactionBar
-                      onSelect={handleAddReaction}
-                      onOpenFullPicker={() => setShowFullPicker(true)}
-                      isReversed={false}
-                    />
-                  ) : (
-                    <EmojiPicker
-                      onSelect={emoji => { 
-                        handleAddReaction(emoji); 
-                        setShowReactionPopover(false); 
-                        setShowFullPicker(false) 
-                      }}
-                      onClose={() => { setShowFullPicker(false) }}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
+            {/* Botão de reação simples */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="p-1.5 rounded-full hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-ring"
+              title="Adicionar reação"
+            >
+              <SmilePlus className="w-4 h-4 text-muted-foreground" />
+            </motion.button>
             
             {/* Menu de ações */}
             {!hideMenu && (
@@ -701,10 +591,6 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
                   {/* Fixar - sempre (opcional, normalmente só em grupos) */}
                   <DropdownMenuItem onClick={handlePin}>
                     <Pin className={`w-4 h-4 mr-2 ${isPinned ? 'text-primary' : ''}`} /> Fixar
-                  </DropdownMenuItem>
-                  {/* Reagir - sempre */}
-                  <DropdownMenuItem onClick={handleReact}>
-                    <Smile className="w-4 h-4 mr-2" /> Reagir
                   </DropdownMenuItem>
                   {/* Info - só para mensagens do usuário */}
                   {isMe && (
