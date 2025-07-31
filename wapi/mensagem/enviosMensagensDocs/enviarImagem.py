@@ -1,222 +1,223 @@
 import requests
 import json
 import base64
-import os
-import mimetypes
-from urllib.parse import urlparse
 
 
-class EnviaImagem:
-    """Classe para enviar imagens locais via WhatsApp usando a API W-API."""
-
-    def __init__(self, instance_id, api_token, base_url="https://api.w-api.app/v1/message"):
+class EnviarImagem:
+    def __init__(self, instance_id, token):
         """
-        Inicializa a classe EnviaImagem.
+        Inicializa o enviador de imagens
 
         Args:
-            instance_id (str): ID da instância do WhatsApp.
-            api_token (str): Token de autenticação da API.
-            base_url (str): URL base da API.
+            instance_id (str): ID da instância do WhatsApp
+            token (str): Token de autorização da API
         """
         self.instance_id = instance_id
-        self.api_token = api_token
-        self.base_url = base_url
+        self.token = token
+        self.base_url = "https://api.w-api.app/v1/message/send-image"
         self.headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_token}"
+            "Authorization": f"Bearer {self.token}",
+            "Content-Type": "application/json"
         }
 
-    def enviar(self, phone_number, caminho_imagem, caption="", delay_message=1):
+    def enviar_imagem_url(self, phone, image_url, caption="", message_id=None, delay=0):
         """
-        Envia imagem local via WhatsApp.
-        Se for detectada uma URL, também funciona.
+        Envia uma imagem via URL
 
         Args:
-            phone_number (str): Número de telefone do destinatário.
-            caminho_imagem (str): Caminho local da imagem (ex: '/pasta/imagem.jpg').
-            caption (str): Legenda da imagem (opcional).
-            delay_message (int): Delay em segundos.
+            phone (str): Número do telefone ou grupo (formato: 5569999267344)
+            image_url (str): URL da imagem
+            caption (str): Legenda da imagem (opcional)
+            message_id (str): ID da mensagem para responder (opcional)
+            delay (int): Atraso opcional em segundos (padrão: 0)
 
         Returns:
-            dict: Resultado da operação com success, data/error, e detalhes.
+            dict: Resposta da API com status e dados
         """
-        # Valida o número de telefone
-        if not self._validar_numero(phone_number):
-            return {
-                "success": False,
-                "error": "Número de telefone inválido",
-                "details": "O número deve ter pelo menos 10 dígitos"
-            }
+        params = {
+            "instanceId": self.instance_id
+        }
 
-        # Detecta se por acaso foi passada uma URL (para compatibilidade)
-        if self._is_url(caminho_imagem):
-            return self._enviar_url(phone_number, caminho_imagem, caption, delay_message)
+        payload = {
+            "phone": phone,
+            "image": image_url
+        }
 
-        # Processo principal: arquivo local
-        return self._enviar_arquivo_local(phone_number, caminho_imagem, caption, delay_message)
+        # Adicionar parâmetros opcionais
+        if caption:
+            payload["caption"] = caption
+        if message_id:
+            payload["messageId"] = message_id
+        if delay > 0:
+            payload["delayMessage"] = delay
 
-    def _is_url(self, string):
-        """Verifica se a string é uma URL válida."""
         try:
-            result = urlparse(string)
-            return all([result.scheme, result.netloc])
-        except:
-            return False
-
-    def _validar_numero(self, phone_number):
-        """Valida se o número de telefone está no formato correto."""
-        numero_limpo = ''.join(filter(str.isdigit, phone_number))
-
-        if len(numero_limpo) < 10:
-            return False
-
-        # Para números brasileiros
-        if numero_limpo.startswith('55') and len(numero_limpo) >= 12:
-            return True
-
-        return len(numero_limpo) >= 10
-
-    def _enviar_arquivo_local(self, phone_number, caminho_imagem, caption, delay_message):
-        """Processa e envia imagem local."""
-        try:
-            # Verifica se o arquivo existe
-            if not os.path.exists(caminho_imagem):
-                return {
-                    "success": False,
-                    "error": f"Arquivo não encontrado: {caminho_imagem}",
-                    "details": "Verifique se o caminho está correto"
-                }
-
-            # Verifica se é um arquivo de imagem
-            if not self._is_imagem_valida(caminho_imagem):
-                return {
-                    "success": False,
-                    "error": "Arquivo não é uma imagem válida",
-                    "details": "Formatos suportados: jpg, jpeg, png, gif, webp"
-                }
-
-            # Converte para base64
-            image_base64 = self._converter_para_base64(caminho_imagem)
-            if not image_base64:
-                return {
-                    "success": False,
-                    "error": "Erro ao converter imagem para base64"
-                }
-
-            # Prepara payload
-            payload = {
-                "phone": phone_number,
-                "image": image_base64,
-                "delayMessage": delay_message
-            }
-
-            if caption:
-                payload["caption"] = caption
-
-            return self._fazer_requisicao(payload)
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Erro ao processar arquivo local: {str(e)}"
-            }
-
-    def _enviar_url(self, phone_number, image_url, caption, delay_message):
-        """Envia URL diretamente (caso seja detectada)."""
-        try:
-            payload = {
-                "phone": phone_number,
-                "image": image_url,
-                "delayMessage": delay_message
-            }
-
-            if caption:
-                payload["caption"] = caption
-
-            return self._fazer_requisicao(payload)
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Erro ao enviar URL: {str(e)}"
-            }
-
-    def _is_imagem_valida(self, caminho_imagem):
-        """Verifica se o arquivo é uma imagem válida."""
-        extensoes_validas = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'}
-        extensao = os.path.splitext(caminho_imagem.lower())[1]
-        return extensao in extensoes_validas
-
-    def _converter_para_base64(self, caminho_imagem):
-        """Converte uma imagem local para base64."""
-        try:
-            mime_type, _ = mimetypes.guess_type(caminho_imagem)
-            if not mime_type or not mime_type.startswith('image/'):
-                # Default para JPEG se não conseguir detectar
-                mime_type = 'image/jpeg'
-
-            with open(caminho_imagem, "rb") as image_file:
-                encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-
-            return f"data:{mime_type};base64,{encoded_string}"
-
-        except Exception as e:
-            print(f"Erro ao converter imagem para base64: {e}")
-            return None
-
-    def _fazer_requisicao(self, payload):
-        """Faz a requisição HTTP para a API."""
-        try:
-            url = f"{self.base_url}/send-image"
-            params = {"instanceId": self.instance_id}
-
             response = requests.post(
-                url,
+                self.base_url,
                 headers=self.headers,
-                json=payload,
                 params=params,
-                timeout=30
+                data=json.dumps(payload)
             )
 
-            try:
-                result = response.json()
-
-                if response.status_code == 200:
-                    return {
-                        "success": True,
-                        "data": result,
-                        "status_code": response.status_code,
-                        "message": "Imagem enviada com sucesso"
-                    }
-                else:
-                    return {
-                        "success": False,
-                        "error": f"Erro HTTP {response.status_code}",
-                        "details": result,
-                        "status_code": response.status_code
-                    }
-
-            except json.JSONDecodeError:
-                return {
-                    "success": False,
-                    "error": f"Erro HTTP {response.status_code} - Resposta inválida",
-                    "response_text": response.text[:200],
-                    "status_code": response.status_code
-                }
-
-        except requests.exceptions.Timeout:
-            return {
-                "success": False,
-                "error": "Timeout - Requisição demorou muito"
+            resultado = {
+                "sucesso": response.status_code == 200,
+                "status_code": response.status_code,
+                "dados": response.json() if response.status_code == 200 else None,
+                "erro": response.text if response.status_code != 200 else None
             }
-        except requests.exceptions.ConnectionError:
-            return {
-                "success": False,
-                "error": "Erro de conexão - Verifique a internet"
-            }
+
+            return resultado
+
         except requests.exceptions.RequestException as e:
             return {
-                "success": False,
-                "error": f"Erro na requisição: {str(e)}"
+                "sucesso": False,
+                "status_code": None,
+                "dados": None,
+                "erro": f"Erro na requisição: {str(e)}"
             }
+        except json.JSONDecodeError:
+            return {
+                "sucesso": False,
+                "status_code": response.status_code,
+                "dados": None,
+                "erro": "Erro ao decodificar resposta JSON"
+            }
+
+    def enviar_imagem_base64(self, phone, image_base64, caption="", message_id=None, delay=0):
+        """
+        Envia uma imagem via Base64
+
+        Args:
+            phone (str): Número do telefone ou grupo (formato: 5569999267344)
+            image_base64 (str): Imagem em formato Base64
+            caption (str): Legenda da imagem (opcional)
+            message_id (str): ID da mensagem para responder (opcional)
+            delay (int): Atraso opcional em segundos (padrão: 0)
+
+        Returns:
+            dict: Resposta da API com status e dados
+        """
+        params = {
+            "instanceId": self.instance_id
+        }
+
+        payload = {
+            "phone": phone,
+            "image": image_base64
+        }
+
+        # Adicionar parâmetros opcionais
+        if caption:
+            payload["caption"] = caption
+        if message_id:
+            payload["messageId"] = message_id
+        if delay > 0:
+            payload["delayMessage"] = delay
+
+        try:
+            response = requests.post(
+                self.base_url,
+                headers=self.headers,
+                params=params,
+                data=json.dumps(payload)
+            )
+
+            resultado = {
+                "sucesso": response.status_code == 200,
+                "status_code": response.status_code,
+                "dados": response.json() if response.status_code == 200 else None,
+                "erro": response.text if response.status_code != 200 else None
+            }
+
+            return resultado
+
+        except requests.exceptions.RequestException as e:
+            return {
+                "sucesso": False,
+                "status_code": None,
+                "dados": None,
+                "erro": f"Erro na requisição: {str(e)}"
+            }
+        except json.JSONDecodeError:
+            return {
+                "sucesso": False,
+                "status_code": response.status_code,
+                "dados": None,
+                "erro": "Erro ao decodificar resposta JSON"
+            }
+
+    def enviar_imagem_arquivo(self, phone, file_path, caption="", message_id=None, delay=0):
+        """
+        Envia uma imagem a partir de um arquivo local
+
+        Args:
+            phone (str): Número do telefone ou grupo (formato: 5569999267344)
+            file_path (str): Caminho para o arquivo de imagem
+            caption (str): Legenda da imagem (opcional)
+            message_id (str): ID da mensagem para responder (opcional)
+            delay (int): Atraso opcional em segundos (padrão: 0)
+
+        Returns:
+            dict: Resposta da API com status e dados
+        """
+        try:
+            # Ler arquivo e converter para Base64
+            with open(file_path, "rb") as image_file:
+                image_data = image_file.read()
+                image_base64 = base64.b64encode(image_data).decode('utf-8')
+            
+            return self.enviar_imagem_base64(phone, image_base64, caption, message_id, delay)
+            
+        except FileNotFoundError:
+            return {
+                "sucesso": False,
+                "status_code": None,
+                "dados": None,
+                "erro": f"Arquivo não encontrado: {file_path}"
+            }
+        except Exception as e:
+            return {
+                "sucesso": False,
+                "status_code": None,
+                "dados": None,
+                "erro": f"Erro ao ler arquivo: {str(e)}"
+            }
+
+    def enviar_imagem_simples(self, phone, image_data, caption="", message_id=None, delay=0):
+        """
+        Versão simplificada que detecta automaticamente se é URL ou Base64
+
+        Args:
+            phone (str): Número do telefone ou grupo
+            image_data (str): URL da imagem ou Base64
+            caption (str): Legenda da imagem (opcional)
+            message_id (str): ID da mensagem para responder (opcional)
+            delay (int): Atraso opcional em segundos (padrão: 0)
+
+        Returns:
+            dict: Resposta da API com status e dados
+        """
+        # Detectar se é URL ou Base64
+        if image_data.startswith(('http://', 'https://')):
+            return self.enviar_imagem_url(phone, image_data, caption, message_id, delay)
+        else:
+            return self.enviar_imagem_base64(phone, image_data, caption, message_id, delay)
+
+    def formatos_suportados(self):
+        """
+        Retorna os formatos de imagem suportados
+
+        Returns:
+            list: Lista de formatos suportados
+        """
+        return ["PNG", "JPEG", "JPG"]
+
+    def tamanho_maximo(self):
+        """
+        Retorna o tamanho máximo suportado para imagens
+
+        Returns:
+            str: Tamanho máximo em MB
+        """
+        return "16 MB"
 

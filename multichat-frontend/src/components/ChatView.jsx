@@ -43,7 +43,9 @@ import {
 } from './ui/dialog'
 import { Button } from './ui/button'
 import { enviarMensagemWapi } from '../lib/wapi'
-import PropTypes from 'prop-types';
+import PropTypes from 'prop-types'
+import ImageUpload from './ImageUpload'
+import { toast } from './ui/use-toast'
 
 const ChatView = ({ chat, instances = [], clients = [] }) => {
   // Constantes
@@ -120,6 +122,8 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
   const [favoritedMessages, setFavoritedMessages] = useState([])
   const [pinnedMessages, setPinnedMessages] = useState([])
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [showImageUpload, setShowImageUpload] = useState(false)
+  const [isProcessingImage, setIsProcessingImage] = useState(false)
   
   // Estados para encaminhamento de mensagens
   const [forwardModalMessage, setForwardModalMessage] = useState(null)
@@ -164,6 +168,68 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [showEmojiPicker])
+
+  // Detectar imagens no clipboard globalmente
+  useEffect(() => {
+    const handlePaste = async (event) => {
+      const items = event.clipboardData?.items
+      if (!items) return
+
+      for (let item of items) {
+        if (item.type.indexOf('image') !== -1) {
+          const file = item.getAsFile()
+          if (file) {
+            console.log('📸 Imagem detectada no clipboard!')
+            
+            // Converter para Base64
+            const reader = new FileReader()
+            reader.onload = async (e) => {
+              const base64 = e.target.result.split(',')[1]
+              
+              // Criar dados da imagem
+              const imageData = {
+                type: 'base64',
+                data: base64,
+                filename: `clipboard-${Date.now()}.png`,
+                caption: ''
+              }
+              
+                          // Enviar imagem automaticamente
+            setIsProcessingImage(true)
+            toast({
+              title: "📸 Imagem detectada",
+              description: "Enviando imagem do clipboard...",
+              duration: 2000,
+            })
+            
+            try {
+              await handleSendImage(imageData)
+              toast({
+                title: "✅ Imagem enviada",
+                description: "Imagem enviada com sucesso!",
+                duration: 3000,
+              })
+            } catch (error) {
+              toast({
+                title: "❌ Erro ao enviar imagem",
+                description: error.message || "Não foi possível enviar a imagem",
+                duration: 4000,
+              })
+            } finally {
+              setIsProcessingImage(false)
+            }
+            }
+            reader.readAsDataURL(file)
+            break
+          }
+        }
+      }
+    }
+
+    // Adicionar listener global
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [chat?.id]) // Dependência do chat para garantir que handleSendImage está atualizado
 
   // Função para adicionar nova mensagem em tempo real
   // Callback memoizado para evitar re-renders desnecessários
@@ -789,6 +855,62 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     setForwardSearch("")
   }
 
+  // Função para enviar imagem
+  const handleSendImage = async (imageData) => {
+    try {
+      const token = localStorage.getItem('access_token')
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      
+      const response = await fetch(`${API_BASE_URL}/api/chats/${chat.id}/enviar-imagem/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          image_data: imageData.data,
+          image_type: imageData.type,
+          caption: imageData.caption || ''
+        })
+      })
+
+      const result = await response.json()
+
+      if (result.sucesso) {
+        // Criar mensagem temporária de imagem
+        const tempId = `temp_img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        const tempMessage = {
+          id: tempId,
+          message_id: result.dados?.messageId || tempId,
+          type: 'image',
+          content: imageData.data,
+          caption: imageData.caption || '',
+          timestamp: new Date().toISOString(),
+          sender: 'Você',
+          isOwn: true,
+          from_me: true,
+          status: 'sent',
+          isTemporary: true
+        }
+        
+        setMessages(prev => [...prev, tempMessage])
+        
+        // Scroll para o final
+        setTimeout(() => {
+          const messagesContainer = document.querySelector('.messages-container')
+          if (messagesContainer) {
+            messagesContainer.scrollTop = messagesContainer.scrollHeight
+          }
+        }, 100)
+      } else {
+        throw new Error(result.erro || 'Erro ao enviar imagem')
+      }
+    } catch (error) {
+      console.error('❌ Erro ao enviar imagem:', error)
+      alert('Erro ao enviar imagem: ' + (error?.message || 'Erro desconhecido'))
+    }
+  }
+
   // Função para lidar com seleção de emoji
   const handleEmojiSelect = (emoji) => {
     // Adicionar emoji à mensagem (pode adicionar quantos quiser)
@@ -1181,7 +1303,11 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
           </div>
         )}
         <div className="flex items-center space-x-2">
-          <button className="p-2 hover:bg-accent rounded-lg transition-colors">
+          <button 
+            className="p-2 hover:bg-accent rounded-lg transition-colors"
+            onClick={() => setShowImageUpload(true)}
+            title="Enviar imagem"
+          >
             <Paperclip className="h-5 w-5 text-muted-foreground" />
           </button>
           
@@ -1198,9 +1324,18 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-              placeholder="Digite sua mensagem..."
-              className="w-full px-4 py-2 border border-input rounded-lg bg-background text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
+              placeholder={isProcessingImage ? "Processando imagem..." : "Digite sua mensagem..."}
+              disabled={isProcessingImage}
+              className="w-full px-4 py-2 border border-input rounded-lg bg-background text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent disabled:opacity-50"
             />
+            
+            {/* Indicador de processamento de imagem */}
+            {isProcessingImage && (
+              <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-2 text-primary">
+                <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-xs">Enviando imagem...</span>
+              </div>
+            )}
             
             {/* Emoji Picker */}
             {showEmojiPicker && (
@@ -1430,6 +1565,13 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Componente de upload de imagem */}
+      <ImageUpload
+        isVisible={showImageUpload}
+        onClose={() => setShowImageUpload(false)}
+        onImageSelect={handleSendImage}
+      />
     </div>
   )
 }
