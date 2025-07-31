@@ -1572,19 +1572,26 @@ class MensagemViewSet(viewsets.ModelViewSet):
                 chat = Chat.objects.get(id=chat_id)
             except Chat.DoesNotExist:
                 return Response(
-                    {'erro': 'Chat não encontrado'}, 
+                    {'error': True, 'message': 'Chat não encontrado'}, 
                     status=status.HTTP_404_NOT_FOUND
                 )
             
             # Validar dados da requisição
             image_data = request.data.get('image_data')
-            image_type = request.data.get('image_type')  # 'url' ou 'base64'
+            image_type = request.data.get('image_type', 'base64')  # 'url' ou 'base64'
             caption = request.data.get('caption', '')
             message_id = request.data.get('message_id')
             
             if not image_data:
                 return Response(
-                    {'erro': 'Dados da imagem são obrigatórios'}, 
+                    {'error': True, 'message': 'Dados da imagem são obrigatórios'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validar formato da imagem
+            if image_type not in ['url', 'base64']:
+                return Response(
+                    {'error': True, 'message': 'Formato de imagem inválido. Forneça uma imagem em base64 ou URL.'}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
