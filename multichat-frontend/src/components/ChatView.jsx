@@ -845,11 +845,42 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
   const handleSendImage = async (imageData) => {
     if (!imageData) return
     
+    // Verificar se o chat existe
+    if (!chat || !chat.id) {
+      console.error('❌ Chat não encontrado:', chat)
+      toast({
+        title: "❌ Erro",
+        description: "Chat não encontrado. Selecione um chat válido.",
+        duration: 4000,
+      })
+      return
+    }
+    
+    console.log('📱 Chat encontrado:', {
+      id: chat.id,
+      chat_id: chat.chat_id,
+      cliente: chat.cliente
+    })
+    
     setIsProcessingImage(true)
     
     try {
       const token = localStorage.getItem('access_token')
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      
+      // Verificar se o token existe
+      if (!token) {
+        console.error('❌ Token não encontrado')
+        toast({
+          title: "❌ Erro de autenticação",
+          description: "Token não encontrado. Faça login novamente.",
+          duration: 4000,
+        })
+        return
+      }
+      
+      console.log('🔑 Token encontrado:', token.substring(0, 20) + '...')
+      console.log('🌐 API URL:', API_BASE_URL)
       
       const response = await fetch(`${API_BASE_URL}/api/chats/${chat.id}/enviar-imagem/`, {
         method: 'POST',
@@ -863,6 +894,17 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
           caption: imageData.caption || ''
         })
       })
+
+      console.log('📡 Response status:', response.status)
+      console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()))
+      
+      // Verificar se a resposta é JSON
+      const contentType = response.headers.get('content-type')
+      if (!contentType || !contentType.includes('application/json')) {
+        const responseText = await response.text()
+        console.error('❌ Resposta não é JSON:', responseText.substring(0, 200))
+        throw new Error('Resposta do servidor não é JSON válido')
+      }
 
       const result = await response.json()
 
@@ -921,10 +963,18 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
   const handleSendPendingImage = async () => {
     if (!pendingImage) return
     
+    console.log('📸 Imagem pendente encontrada:', {
+      type: pendingImage.type,
+      filename: pendingImage.filename,
+      dataLength: pendingImage.data?.length || 0
+    })
+    
     const imageDataWithCaption = {
       ...pendingImage,
       caption: imageCaption
     }
+    
+    console.log('📝 Legenda:', imageCaption)
     
     await handleSendImage(imageDataWithCaption)
   }
