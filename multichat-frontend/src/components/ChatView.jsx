@@ -42,7 +42,7 @@ import {
   DialogDescription
 } from './ui/dialog'
 import { Button } from './ui/button'
-import { enviarMensagemWapi } from '../lib/wapi'
+import { enviarMensagemWapi, enviarImagemWapi } from '../lib/wapi'
 import PropTypes from 'prop-types'
 import ImageUpload from './ImageUpload'
 import { toast } from './ui/use-toast'
@@ -865,56 +865,50 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     setIsProcessingImage(true)
     
     try {
-      const token = localStorage.getItem('access_token')
-      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      // Busca instância e token do localStorage (mesmo método usado em handleSendMessage)
+      const wapiInstances = JSON.parse(localStorage.getItem('wapi_instances') || '{}')
+      const instanciaId = Object.keys(wapiInstances)[0]
+      const token = instanciaId ? wapiInstances[instanciaId].token : null
       
-      // Verificar se o token existe
-      if (!token) {
-        console.error('❌ Token não encontrado')
+      if (!instanciaId || !token) {
+        console.error('❌ Nenhuma instância/token encontrada')
         toast({
           title: "❌ Erro de autenticação",
-          description: "Token não encontrado. Faça login novamente.",
+          description: "Nenhuma instância/token encontrada no navegador. Faça login ou conecte uma instância.",
           duration: 4000,
         })
         return
       }
       
       console.log('🔑 Token encontrado:', token.substring(0, 20) + '...')
-      console.log('🌐 API URL:', API_BASE_URL)
+      console.log('📱 Instância ID:', instanciaId)
+      console.log('📏 Tamanho do image_data:', imageData.data ? imageData.data.length : 0)
+      console.log('🏷️ Tipo da imagem:', imageData.type)
       
-      const response = await fetch(`${API_BASE_URL}/api/mensagens/enviar-imagem/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          chat_id: chat.id,
-          image_data: imageData.data,
-          image_type: imageData.type,
-          caption: imageData.caption || ''
-        })
+      // Log detalhado dos dados da imagem
+      console.log('📸 Dados da imagem para envio:')
+      console.log('- Tipo:', imageData.type)
+      console.log('- Dados (primeiros 100 chars):', imageData.data ? imageData.data.substring(0, 100) + '...' : 'null')
+      console.log('- Tamanho total:', imageData.data ? imageData.data.length : 0)
+      console.log('- É base64 válido?', imageData.data ? /^[A-Za-z0-9+/]*={0,2}$/.test(imageData.data) : false)
+      
+      // Enviar imagem diretamente para a WAPI (mesmo método que handleSendMessage)
+      const response = await enviarImagemWapi({
+        chat_id: chat.chat_id, // Usar chat_id em vez de chat.id
+        instancia: instanciaId,
+        token,
+        image_data: imageData.data,
+        image_type: imageData.type,
+        caption: imageData.caption || ''
       })
 
-      console.log('📡 Response status:', response.status)
-      console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()))
-      
-      // Verificar se a resposta é JSON
-      const contentType = response.headers.get('content-type')
-      if (!contentType || !contentType.includes('application/json')) {
-        const responseText = await response.text()
-        console.error('❌ Resposta não é JSON:', responseText.substring(0, 200))
-        throw new Error('Resposta do servidor não é JSON válido')
-      }
-
-      const result = await response.json()
-
-      if (result.sucesso) {
+      // A WAPI retorna diretamente os dados, não um objeto com 'sucesso'
+      if (response && response.messageId) {
         // Criar mensagem temporária de imagem
         const tempId = `temp_img_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
         const tempMessage = {
           id: tempId,
-          message_id: result.dados?.messageId || tempId,
+          message_id: response.messageId || tempId,
           type: 'image',
           content: imageData.data,
           caption: imageData.caption || '',
