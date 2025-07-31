@@ -1,39 +1,123 @@
-// Teste do Sistema de Reações
-console.log('🧪 Testando Sistema de Reações...')
+// Teste do sistema de reações
+// Este script testa a funcionalidade de reações no frontend
 
-// Simular dados de mensagem
-const messageData = {
+console.log('🧪 Testando sistema de reações...')
+
+// Simular dados de uma mensagem
+const message = {
   id: 1,
-  content: "Olá! Como você está?",
-  timestamp: new Date().toISOString(),
-  reactions: [],
-  isOwn: false
+  content: "Teste de mensagem",
+  reacoes: ["👍", "❤️"],
+  from_me: false
 }
 
 // Simular função de reação
-function handleAddReaction(emoji) {
-  console.log(`✅ Reação adicionada: ${emoji}`)
-  if (messageData.reactions.includes(emoji)) {
-    messageData.reactions = messageData.reactions.filter(r => r !== emoji)
-    console.log(`❌ Reação removida: ${emoji}`)
-  } else {
-    messageData.reactions.push(emoji)
-    console.log(`➕ Reação adicionada: ${emoji}`)
+const handleReaction = async (emoji) => {
+  console.log(`🎯 Enviando reação: ${emoji}`)
+  
+  // Simular chamada à API
+  try {
+    const response = await fetch(`http://localhost:8000/api/mensagens/${message.id}/reagir/`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ emoji })
+    })
+    
+    const data = await response.json()
+    console.log('✅ Resposta da API:', data)
+    
+    if (response.ok) {
+      console.log('✅ Reação enviada com sucesso')
+      return data.reacoes || []
+    } else {
+      throw new Error(data.erro || 'Erro ao enviar reação')
+    }
+  } catch (error) {
+    console.error('❌ Erro ao enviar reação:', error)
+    throw error
   }
-  console.log('📊 Reações atuais:', messageData.reactions)
 }
 
-// Testar reações comuns
-const reacoesComuns = ['👍', '❤️', '😂', '😮', '😢', '😡']
+// Simular função de remoção de reação
+const handleRemoveReaction = async (emoji) => {
+  console.log(`🗑️ Removendo reação: ${emoji}`)
+  
+  try {
+    const response = await fetch(`http://localhost:8000/api/mensagens/${message.id}/reagir/`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ emoji })
+    })
+    
+    const data = await response.json()
+    console.log('✅ Resposta da API:', data)
+    
+    if (response.ok) {
+      console.log('✅ Reação removida com sucesso')
+      return data.reacoes || []
+    } else {
+      throw new Error(data.erro || 'Erro ao remover reação')
+    }
+  } catch (error) {
+    console.error('❌ Erro ao remover reação:', error)
+    throw error
+  }
+}
 
-console.log('🎯 Testando reações comuns...')
-reacoesComuns.forEach(emoji => {
-  handleAddReaction(emoji)
-})
+// Testar emojis comuns
+const commonEmojis = ['👍', '❤️', '😂', '😮', '😢', '😡', '🔥', '👏', '🎉', '💯', '⭐', '✅', '❌', '⚡', '💎']
 
-console.log('🔄 Testando remoção de reações...')
-handleAddReaction('👍') // Remove 👍
-handleAddReaction('❤️') // Remove ❤️
+console.log('📋 Emojis disponíveis:', commonEmojis)
+console.log('📝 Mensagem de teste:', message)
 
-console.log('✅ Teste do sistema de reações concluído!')
-console.log('📋 Reações finais:', messageData.reactions) 
+// Função para testar reações
+const testReactions = async () => {
+  console.log('\n🧪 Iniciando testes de reações...')
+  
+  // Teste 1: Adicionar reação
+  try {
+    console.log('\n1️⃣ Testando adição de reação...')
+    const newReactions = await handleReaction('🔥')
+    console.log('✅ Reação adicionada:', newReactions)
+  } catch (error) {
+    console.error('❌ Falha ao adicionar reação:', error)
+  }
+  
+  // Teste 2: Remover reação
+  try {
+    console.log('\n2️⃣ Testando remoção de reação...')
+    const updatedReactions = await handleRemoveReaction('👍')
+    console.log('✅ Reação removida:', updatedReactions)
+  } catch (error) {
+    console.error('❌ Falha ao remover reação:', error)
+  }
+  
+  // Teste 3: Adicionar múltiplas reações
+  try {
+    console.log('\n3️⃣ Testando múltiplas reações...')
+    for (const emoji of ['🎉', '⭐', '💯']) {
+      const reactions = await handleReaction(emoji)
+      console.log(`✅ Reação ${emoji} adicionada:`, reactions)
+    }
+  } catch (error) {
+    console.error('❌ Falha ao adicionar múltiplas reações:', error)
+  }
+}
+
+// Executar testes se estiver no navegador
+if (typeof window !== 'undefined') {
+  // Aguardar um pouco para carregar
+  setTimeout(() => {
+    testReactions()
+  }, 1000)
+} else {
+  console.log('🌐 Execute este script no navegador para testar as reações')
+}
+
+console.log('✅ Script de teste de reações carregado') 

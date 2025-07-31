@@ -53,11 +53,30 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
   const [showEditModal, setShowEditModal] = useState(false)
   const [editText, setEditText] = useState('')
   const [isEditing, setIsEditing] = useState(false)
+  const [isReactionLoading, setIsReactionLoading] = useState(false)
+  const [showReactionPicker, setShowReactionPicker] = useState(false)
   
   // Debug: monitorar mudanças no estado do modal
   useEffect(() => {
     console.log('🔄 Estado do modal alterado:', showEditModal)
   }, [showEditModal])
+
+  // Fechar popover de reações quando clicar fora
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (showReactionPicker) {
+        const target = event.target
+        if (!target.closest('.reaction-picker')) {
+          setShowReactionPicker(false)
+        }
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showReactionPicker])
   const { toast } = useToast()
 
   // Função para lidar com teclas de atalho
@@ -84,9 +103,94 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
     canEdit: isMe && (message.tipo === 'text' || message.type === 'text' || message.tipo === 'texto' || message.type === 'texto')
   })
 
+  // Emojis principais para reações (apenas os mais comuns)
+  const commonEmojis = ['👍', '❤️', '😂', '😮', '😢', '😡']
 
+  // Função para enviar reação
+  const handleReaction = async (emoji) => {
+    if (isReactionLoading) return
+    
+    setIsReactionLoading(true)
+    setShowReactionPicker(false)
+    
+    try {
+      const response = await fetch(`http://localhost:8000/api/mensagens/${message.id}/reagir/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ emoji })
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok) {
+        // Atualizar reações localmente
+        setReactions(data.reacoes || [])
+        
+        toast({
+          title: "Reação enviada",
+          description: data.mensagem || `Reação ${data.acao} com sucesso`,
+          duration: 2000,
+        })
+      } else {
+        throw new Error(data.erro || 'Erro ao enviar reação')
+      }
+    } catch (error) {
+      console.error('❌ Erro ao enviar reação:', error)
+      toast({
+        title: "❌ Erro ao reagir",
+        description: error.message || "Não foi possível enviar a reação",
+        duration: 4000,
+      })
+    } finally {
+      setIsReactionLoading(false)
+    }
+  }
 
-
+  // Função para remover reação
+  const handleRemoveReaction = async (emoji) => {
+    if (isReactionLoading) return
+    
+    setIsReactionLoading(true)
+    
+    try {
+      const response = await fetch(`http://localhost:8000/api/mensagens/${message.id}/reagir/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ emoji })
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok) {
+        // Atualizar reações localmente
+        setReactions(data.reacoes || [])
+        
+        toast({
+          title: "Reação removida",
+          description: data.mensagem || "Reação removida com sucesso",
+          duration: 2000,
+        })
+      } else {
+        throw new Error(data.erro || 'Erro ao remover reação')
+      }
+    } catch (error) {
+      console.error('❌ Erro ao remover reação:', error)
+      toast({
+        title: "❌ Erro ao remover reação",
+        description: error.message || "Não foi possível remover a reação",
+        duration: 4000,
+      })
+    } finally {
+      setIsReactionLoading(false)
+    }
+  }
+  
   // Handlers para cada ação do menu
   const handleReply = () => {
     if (onReply) onReply(message)
@@ -528,11 +632,21 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
               <motion.div
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="grid grid-cols-3 gap-1 flex-none"
+                className="flex flex-wrap gap-1 flex-none"
                 style={{ maxWidth: '120px' }}
               >
                 {reactions.slice(0, 6).map((reaction, index) => (
-                  <EmojiBadge key={index} emoji={reaction} />
+                  <motion.button
+                    key={index}
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    onClick={() => handleRemoveReaction(reaction)}
+                    className="w-6 h-6 flex items-center justify-center rounded-full bg-primary-foreground/20 border border-border text-primary-foreground cursor-pointer transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    title={`Remover reação ${reaction}`}
+                    disabled={isReactionLoading}
+                  >
+                    <span className="text-xs">{reaction}</span>
+                  </motion.button>
                 ))}
               </motion.div>
             )}
@@ -544,10 +658,35 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              className="p-1.5 rounded-full hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-ring"
+              onClick={() => setShowReactionPicker(!showReactionPicker)}
+              className="p-1.5 rounded-full hover:bg-accent transition-colors focus:outline-none focus:ring-2 focus:ring-ring relative reaction-picker"
               title="Adicionar reação"
+              disabled={isReactionLoading}
             >
               <SmilePlus className="w-4 h-4 text-muted-foreground" />
+              
+              {/* Popover de emojis principais */}
+              {showReactionPicker && (
+                <div className={`absolute bottom-full mb-1 bg-background border border-border rounded-lg shadow-lg p-2 z-50 reaction-picker min-w-[120px] ${
+                  isMe ? 'left-0' : 'right-0'
+                }`}>
+                  <div className="grid grid-cols-3 gap-1">
+                    {commonEmojis.map((emoji, index) => (
+                      <motion.button
+                        key={index}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        onClick={() => handleReaction(emoji)}
+                        className="p-1 rounded-full hover:bg-accent transition-colors text-lg flex items-center justify-center"
+                        title={`Reagir com ${emoji}`}
+                        disabled={isReactionLoading}
+                      >
+                        {emoji}
+                      </motion.button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </motion.button>
             
             {/* Menu de ações */}

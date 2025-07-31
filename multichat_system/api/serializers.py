@@ -263,7 +263,7 @@ class MensagemSerializer(serializers.ModelSerializer):
         model = Mensagem
         fields = [
             "id", "chat", "remetente", "conteudo", "data_envio", "tipo", "lida", "fromMe", "from_me",
-            "sender_display_name", "sender_push_name", "sender_verified_name", "message_id"
+            "sender_display_name", "sender_push_name", "sender_verified_name", "message_id", "reacoes"
         ]
         read_only_fields = ["data_envio"]
 
