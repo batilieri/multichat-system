@@ -1430,8 +1430,82 @@ class MensagemViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Importar e usar a classe de envio de imagem
-            from mensagem.enviosMensagensDocs.enviarImagem import EnviarImagem
+            # Classe EnviarImagem integrada para evitar problemas de importação
+            class EnviarImagem:
+                def __init__(self, instance_id, token):
+                    self.instance_id = instance_id
+                    self.token = token
+                    self.base_url = "https://api.w-api.app/v1/message/send-image"
+                    self.headers = {
+                        "Authorization": f"Bearer {self.token}",
+                        "Content-Type": "application/json"
+                    }
+
+                def enviar_imagem_url(self, phone, image_url, caption="", message_id=None, delay=0):
+                    params = {"instanceId": self.instance_id}
+                    payload = {"phone": phone, "image": image_url}
+                    
+                    if caption:
+                        payload["caption"] = caption
+                    if message_id:
+                        payload["messageId"] = message_id
+                    if delay > 0:
+                        payload["delayMessage"] = delay
+
+                    try:
+                        response = requests.post(
+                            self.base_url,
+                            headers=self.headers,
+                            params=params,
+                            data=json.dumps(payload)
+                        )
+
+                        return {
+                            "sucesso": response.status_code == 200,
+                            "status_code": response.status_code,
+                            "dados": response.json() if response.status_code == 200 else None,
+                            "erro": response.text if response.status_code != 200 else None
+                        }
+                    except Exception as e:
+                        return {
+                            "sucesso": False,
+                            "status_code": None,
+                            "dados": None,
+                            "erro": f"Erro na requisição: {str(e)}"
+                        }
+
+                def enviar_imagem_base64(self, phone, image_base64, caption="", message_id=None, delay=0):
+                    params = {"instanceId": self.instance_id}
+                    payload = {"phone": phone, "image": image_base64}
+                    
+                    if caption:
+                        payload["caption"] = caption
+                    if message_id:
+                        payload["messageId"] = message_id
+                    if delay > 0:
+                        payload["delayMessage"] = delay
+
+                    try:
+                        response = requests.post(
+                            self.base_url,
+                            headers=self.headers,
+                            params=params,
+                            data=json.dumps(payload)
+                        )
+
+                        return {
+                            "sucesso": response.status_code == 200,
+                            "status_code": response.status_code,
+                            "dados": response.json() if response.status_code == 200 else None,
+                            "erro": response.text if response.status_code != 200 else None
+                        }
+                    except Exception as e:
+                        return {
+                            "sucesso": False,
+                            "status_code": None,
+                            "dados": None,
+                            "erro": f"Erro na requisição: {str(e)}"
+                        }
             
             imagem_wapi = EnviarImagem(instance.instance_id, instance.token)
             
