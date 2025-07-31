@@ -1320,6 +1320,86 @@ class MensagemViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+    @action(detail=True, methods=['post'], url_path='remover-reacao')
+    def remover_reacao(self, request, pk=None):
+        """
+        Remove a reação de uma mensagem e envia para o WhatsApp real
+        """
+        try:
+            mensagem = self.get_object()
+            
+            # Obter reações atuais
+            reacoes = mensagem.reacoes or []
+            
+            if not reacoes:
+                return Response(
+                    {'erro': 'Mensagem não possui reações para remover'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Remover reação
+            emoji_removido = reacoes[0]  # Pega o primeiro emoji (único)
+            reacoes = []
+            
+            # Salvar no banco
+            mensagem.reacoes = reacoes
+            mensagem.save()
+            
+            # Tentar remover reação do WhatsApp real
+            wapi_result = None
+            try:
+                # Buscar instância e token
+                from core.models import WhatsappInstance
+                instance = WhatsappInstance.objects.filter(cliente=mensagem.chat.cliente).first()
+                
+                if instance and instance.token and mensagem.message_id:
+                    # Importar e usar a classe de reação
+                    from mensagem.reacao.enviarReacao import EnviarReacao
+                    
+                    reacao_wapi = EnviarReacao(instance.instance_id, instance.token)
+                    
+                    # Extrair número do telefone do chat_id
+                    phone = mensagem.chat.chat_id.split('@')[0] if '@' in mensagem.chat.chat_id else mensagem.chat.chat_id
+                    
+                    # Remover reação do WhatsApp usando endpoint específico
+                    wapi_result = reacao_wapi.remover_reacao(
+                        phone=phone,
+                        message_id=mensagem.message_id,
+                        delay=1
+                    )
+                    
+                    if wapi_result['sucesso']:
+                        logger.info(f'Reação removida do WhatsApp: emoji={emoji_removido}, mensagem_id={mensagem.message_id}')
+                    else:
+                        logger.warning(f'Falha ao remover reação do WhatsApp: {wapi_result["erro"]}')
+                        
+            except Exception as e:
+                logger.error(f'Erro ao remover reação do WhatsApp: {str(e)}')
+                # Não falhar a operação se o envio para WhatsApp falhar
+            
+            logger.info(f'Reação removida: emoji={emoji_removido}, mensagem_id={mensagem.id}')
+            
+            return Response({
+                'sucesso': True,
+                'acao': 'removida',
+                'emoji_removido': emoji_removido,
+                'reacoes': reacoes,
+                'wapi_enviado': wapi_result['sucesso'] if wapi_result else False,
+                'mensagem': f'Reação removida com sucesso'
+            })
+            
+        except Mensagem.DoesNotExist:
+            return Response(
+                {'erro': 'Mensagem não encontrada'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f'Erro ao remover reação: {str(e)}')
+            return Response(
+                {'erro': f'Erro interno: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
 
 class WebhookEventViewSet(viewsets.ModelViewSet):
     """

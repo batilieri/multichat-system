@@ -190,6 +190,47 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
       setIsReactionLoading(false)
     }
   }
+
+  // Função para remover reação
+  const handleRemoveReaction = async () => {
+    if (isReactionLoading) return
+    
+    setIsReactionLoading(true)
+    
+    try {
+      const response = await fetch(`http://localhost:8000/api/mensagens/${message.id}/remover-reacao/`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Content-Type': 'application/json',
+        }
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok) {
+        // Atualizar reações localmente
+        setReactions(data.reacoes || [])
+        
+        toast({
+          title: "Reação removida",
+          description: data.mensagem || "Reação removida com sucesso",
+          duration: 2000,
+        })
+      } else {
+        throw new Error(data.erro || 'Erro ao remover reação')
+      }
+    } catch (error) {
+      console.error('❌ Erro ao remover reação:', error)
+      toast({
+        title: "❌ Erro ao remover reação",
+        description: error.message || "Não foi possível remover a reação",
+        duration: 4000,
+      })
+    } finally {
+      setIsReactionLoading(false)
+    }
+  }
   
   // Handlers para cada ação do menu
   const handleReply = () => {
@@ -640,7 +681,7 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
                     key={index}
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
-                    onClick={() => handleReplaceReaction(reaction)}
+                    onClick={() => handleRemoveReaction()}
                     className="w-6 h-6 flex items-center justify-center rounded-full bg-primary-foreground/20 border border-border text-primary-foreground cursor-pointer transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                     title={`Remover reação ${reaction}`}
                     disabled={isReactionLoading}

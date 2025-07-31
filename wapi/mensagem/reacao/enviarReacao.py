@@ -14,6 +14,7 @@ class EnviarReacao:
         self.instance_id = instance_id
         self.token = token
         self.base_url = "https://api.w-api.app/v1/message/send-reaction"
+        self.remove_url = "https://api.w-api.app/v1/message/remove-reaction"
         self.headers = {
             "Authorization": f"Bearer {self.token}",
             "Content-Type": "application/json"
@@ -49,6 +50,63 @@ class EnviarReacao:
         try:
             response = requests.post(
                 self.base_url,
+                headers=self.headers,
+                params=params,
+                data=json.dumps(payload)
+            )
+
+            resultado = {
+                "sucesso": response.status_code == 200,
+                "status_code": response.status_code,
+                "dados": response.json() if response.status_code == 200 else None,
+                "erro": response.text if response.status_code != 200 else None
+            }
+
+            return resultado
+
+        except requests.exceptions.RequestException as e:
+            return {
+                "sucesso": False,
+                "status_code": None,
+                "dados": None,
+                "erro": f"Erro na requisição: {str(e)}"
+            }
+        except json.JSONDecodeError:
+            return {
+                "sucesso": False,
+                "status_code": response.status_code,
+                "dados": None,
+                "erro": "Erro ao decodificar resposta JSON"
+            }
+
+    def remover_reacao(self, phone, message_id, delay=0):
+        """
+        Remove uma reação de uma mensagem
+
+        Args:
+            phone (str): Número do telefone ou grupo (formato: 5569999267344)
+            message_id (str): ID da mensagem para remover reação
+            delay (int): Atraso opcional em segundos (padrão: 0)
+
+        Returns:
+            dict: Resposta da API com status e dados
+        """
+        params = {
+            "instanceId": self.instance_id
+        }
+
+        payload = {
+            "phone": phone,
+            "messageId": message_id
+        }
+
+        # Adiciona delay apenas se for maior que 0
+        if delay > 0:
+            payload["delayMessage"] = delay
+
+        try:
+            response = requests.post(
+                self.remove_url,
                 headers=self.headers,
                 params=params,
                 data=json.dumps(payload)
