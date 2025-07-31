@@ -135,6 +135,16 @@ class EnviarImagem:
                 "erro": f"Erro na requisição: {str(e)}"
             }
 
+    def enviar_imagem_simples(self, phone, image_data, caption="", message_id=None, delay=0):
+        """
+        Versão simplificada que detecta automaticamente se é URL ou Base64
+        """
+        # Detectar se é URL ou Base64
+        if image_data.startswith(('http://', 'https://')):
+            return self.enviar_imagem_url(phone, image_data, caption, message_id, delay)
+        else:
+            return self.enviar_imagem_base64(phone, image_data, caption, message_id, delay)
+
 
 class UsuarioViewSet(viewsets.ModelViewSet):
     """
@@ -1576,11 +1586,24 @@ class MensagemViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_404_NOT_FOUND
                 )
             
+            # Log para debug - verificar dados recebidos
+            logger.info(f'=== DEBUG ENVIO IMAGEM ===')
+            logger.info(f'Headers: {dict(request.headers)}')
+            logger.info(f'Dados recebidos: {request.data}')
+            logger.info(f'User: {request.user}')
+            logger.info(f'Auth: {request.auth}')
+            
             # Validar dados da requisição
             image_data = request.data.get('image_data')
             image_type = request.data.get('image_type', 'base64')  # 'url' ou 'base64'
             caption = request.data.get('caption', '')
             message_id = request.data.get('message_id')
+            
+            logger.info(f'image_data: {image_data[:50] if image_data else "None"}...')
+            logger.info(f'image_data length: {len(image_data) if image_data else 0}')
+            logger.info(f'image_type: {image_type}')
+            logger.info(f'caption: {caption}')
+            logger.info(f'chat_id: {request.data.get("chat_id")}')
             
             if not image_data:
                 return Response(
@@ -1590,6 +1613,7 @@ class MensagemViewSet(viewsets.ModelViewSet):
             
             # Validar formato da imagem
             if image_type not in ['url', 'base64']:
+                logger.error(f'image_type inválido: {image_type}')
                 return Response(
                     {'error': True, 'message': 'Formato de imagem inválido. Forneça uma imagem em base64 ou URL.'}, 
                     status=status.HTTP_400_BAD_REQUEST
