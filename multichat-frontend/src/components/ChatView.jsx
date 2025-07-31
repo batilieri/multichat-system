@@ -882,13 +882,14 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
       console.log('🔑 Token encontrado:', token.substring(0, 20) + '...')
       console.log('🌐 API URL:', API_BASE_URL)
       
-      const response = await fetch(`${API_BASE_URL}/api/chats/${chat.id}/enviar-imagem/`, {
+      const response = await fetch(`${API_BASE_URL}/api/mensagens/enviar-imagem/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
+          chat_id: chat.id,
           image_data: imageData.data,
           image_type: imageData.type,
           caption: imageData.caption || ''

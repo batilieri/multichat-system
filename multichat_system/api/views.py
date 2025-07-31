@@ -1509,7 +1509,96 @@ class MensagemViewSet(viewsets.ModelViewSet):
                 )
             
             # Usar a classe EnviarImagem definida no topo do arquivo
+            imagem_wapi = EnviarImagem(instance.instance_id, instance.token)
             
+            # Extrair número do telefone do chat_id
+            phone = chat.chat_id.split('@')[0] if '@' in chat.chat_id else chat.chat_id
+            
+            # Enviar imagem para o WhatsApp
+            if image_type == 'url':
+                wapi_result = imagem_wapi.enviar_imagem_url(
+                    phone=phone,
+                    image_url=image_data,
+                    caption=caption,
+                    message_id=message_id,
+                    delay=1
+                )
+            else:  # base64
+                wapi_result = imagem_wapi.enviar_imagem_base64(
+                    phone=phone,
+                    image_base64=image_data,
+                    caption=caption,
+                    message_id=message_id,
+                    delay=1
+                )
+            
+            if wapi_result['sucesso']:
+                logger.info(f'Imagem enviada para WhatsApp: chat_id={chat.chat_id}')
+                return Response({
+                    'sucesso': True,
+                    'mensagem': 'Imagem enviada com sucesso',
+                    'dados': wapi_result['dados']
+                })
+            else:
+                logger.warning(f'Falha ao enviar imagem para WhatsApp: {wapi_result["erro"]}')
+                return Response({
+                    'sucesso': False,
+                    'erro': wapi_result['erro']
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            logger.error(f'Erro ao enviar imagem: {str(e)}')
+            return Response(
+                {'erro': f'Erro interno: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['post'], url_path='enviar-imagem')
+    def enviar_imagem_mensagem(self, request):
+        """
+        Envia uma imagem para o WhatsApp (endpoint alternativo)
+        """
+        try:
+            # Obter chat_id da requisição
+            chat_id = request.data.get('chat_id')
+            if not chat_id:
+                return Response(
+                    {'erro': 'chat_id é obrigatório'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Buscar o chat
+            try:
+                chat = Chat.objects.get(id=chat_id)
+            except Chat.DoesNotExist:
+                return Response(
+                    {'erro': 'Chat não encontrado'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Validar dados da requisição
+            image_data = request.data.get('image_data')
+            image_type = request.data.get('image_type')  # 'url' ou 'base64'
+            caption = request.data.get('caption', '')
+            message_id = request.data.get('message_id')
+            
+            if not image_data:
+                return Response(
+                    {'erro': 'Dados da imagem são obrigatórios'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Buscar instância e token
+            from core.models import WhatsappInstance
+            instance = WhatsappInstance.objects.filter(cliente=chat.cliente).first()
+            
+            if not instance or not instance.token:
+                return Response(
+                    {'erro': 'Instância do WhatsApp não encontrada'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Usar a classe EnviarImagem definida no topo do arquivo
             imagem_wapi = EnviarImagem(instance.instance_id, instance.token)
             
             # Extrair número do telefone do chat_id
