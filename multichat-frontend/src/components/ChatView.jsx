@@ -124,6 +124,8 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [showImageUpload, setShowImageUpload] = useState(false)
   const [isProcessingImage, setIsProcessingImage] = useState(false)
+  const [pendingImage, setPendingImage] = useState(null)
+  const [imageCaption, setImageCaption] = useState('')
   
   // Estados para encaminhamento de mensagens
   const [forwardModalMessage, setForwardModalMessage] = useState(null)
@@ -194,30 +196,14 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
                 caption: ''
               }
               
-                          // Enviar imagem automaticamente
-            setIsProcessingImage(true)
+                          // Mostrar imagem no input para permitir legenda
+            setPendingImage(imageData)
+            setImageCaption('')
             toast({
               title: "📸 Imagem detectada",
-              description: "Enviando imagem do clipboard...",
-              duration: 2000,
+              description: "Adicione uma legenda e clique em enviar",
+              duration: 3000,
             })
-            
-            try {
-              await handleSendImage(imageData)
-              toast({
-                title: "✅ Imagem enviada",
-                description: "Imagem enviada com sucesso!",
-                duration: 3000,
-              })
-            } catch (error) {
-              toast({
-                title: "❌ Erro ao enviar imagem",
-                description: error.message || "Não foi possível enviar a imagem",
-                duration: 4000,
-              })
-            } finally {
-              setIsProcessingImage(false)
-            }
             }
             reader.readAsDataURL(file)
             break
@@ -857,6 +843,10 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
 
   // Função para enviar imagem
   const handleSendImage = async (imageData) => {
+    if (!imageData) return
+    
+    setIsProcessingImage(true)
+    
     try {
       const token = localStorage.getItem('access_token')
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
@@ -902,13 +892,41 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
             messagesContainer.scrollTop = messagesContainer.scrollHeight
           }
         }, 100)
+        
+        // Limpar imagem pendente
+        setPendingImage(null)
+        setImageCaption('')
+        
+        toast({
+          title: "✅ Imagem enviada",
+          description: "Imagem enviada com sucesso!",
+          duration: 3000,
+        })
       } else {
         throw new Error(result.erro || 'Erro ao enviar imagem')
       }
     } catch (error) {
       console.error('❌ Erro ao enviar imagem:', error)
-      alert('Erro ao enviar imagem: ' + (error?.message || 'Erro desconhecido'))
+      toast({
+        title: "❌ Erro ao enviar imagem",
+        description: error.message || "Não foi possível enviar a imagem",
+        duration: 4000,
+      })
+    } finally {
+      setIsProcessingImage(false)
     }
+  }
+
+  // Função para enviar imagem pendente
+  const handleSendPendingImage = async () => {
+    if (!pendingImage) return
+    
+    const imageDataWithCaption = {
+      ...pendingImage,
+      caption: imageCaption
+    }
+    
+    await handleSendImage(imageDataWithCaption)
   }
 
   // Função para lidar com seleção de emoji
@@ -1302,6 +1320,36 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
             </button>
           </div>
         )}
+        {/* Área de imagem pendente */}
+        {pendingImage && (
+          <div className="mb-3 p-3 bg-accent/30 border border-border rounded-lg">
+            <div className="flex items-start gap-3">
+              <img
+                src={`data:image/png;base64,${pendingImage.data}`}
+                alt="Imagem para enviar"
+                className="w-16 h-16 object-cover rounded-lg"
+              />
+              <div className="flex-1">
+                <div className="text-sm text-muted-foreground mb-2">Imagem pronta para enviar</div>
+                <input
+                  type="text"
+                  value={imageCaption}
+                  onChange={(e) => setImageCaption(e.target.value)}
+                  placeholder="Legenda (opcional)"
+                  className="w-full px-3 py-2 text-sm border border-input rounded-lg bg-background text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+              <button
+                onClick={() => setPendingImage(null)}
+                className="p-1 rounded-full hover:bg-accent transition-colors"
+                title="Cancelar"
+              >
+                <X className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center space-x-2">
           <button 
             className="p-2 hover:bg-accent rounded-lg transition-colors"
@@ -1323,7 +1371,7 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
               type="text"
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+              onKeyPress={(e) => e.key === 'Enter' && (pendingImage ? handleSendPendingImage() : handleSendMessage())}
               placeholder={isProcessingImage ? "Processando imagem..." : "Digite sua mensagem..."}
               disabled={isProcessingImage}
               className="w-full px-4 py-2 border border-input rounded-lg bg-background text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent disabled:opacity-50"
@@ -1351,8 +1399,8 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={handleSendMessage}
-            disabled={!message.trim()}
+            onClick={pendingImage ? handleSendPendingImage : handleSendMessage}
+            disabled={isProcessingImage || (!message.trim() && !pendingImage)}
             className="p-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Send className="h-5 w-5" />
