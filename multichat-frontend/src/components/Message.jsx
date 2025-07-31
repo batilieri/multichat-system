@@ -149,8 +149,8 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
     }
   }
 
-  // Função para remover reação
-  const handleRemoveReaction = async (emoji) => {
+  // Função para substituir reação (apenas uma reação por mensagem)
+  const handleReplaceReaction = async (emoji) => {
     if (isReactionLoading) return
     
     setIsReactionLoading(true)
@@ -172,18 +172,18 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
         setReactions(data.reacoes || [])
         
         toast({
-          title: "Reação removida",
-          description: data.mensagem || "Reação removida com sucesso",
+          title: "Reação atualizada",
+          description: data.mensagem || `Reação ${data.acao} com sucesso`,
           duration: 2000,
         })
       } else {
-        throw new Error(data.erro || 'Erro ao remover reação')
+        throw new Error(data.erro || 'Erro ao atualizar reação')
       }
     } catch (error) {
-      console.error('❌ Erro ao remover reação:', error)
+      console.error('❌ Erro ao atualizar reação:', error)
       toast({
-        title: "❌ Erro ao remover reação",
-        description: error.message || "Não foi possível remover a reação",
+        title: "❌ Erro ao reagir",
+        description: error.message || "Não foi possível atualizar a reação",
         duration: 4000,
       })
     } finally {
@@ -640,7 +640,7 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
                     key={index}
                     whileHover={{ scale: 1.1 }}
                     whileTap={{ scale: 0.9 }}
-                    onClick={() => handleRemoveReaction(reaction)}
+                    onClick={() => handleReplaceReaction(reaction)}
                     className="w-6 h-6 flex items-center justify-center rounded-full bg-primary-foreground/20 border border-border text-primary-foreground cursor-pointer transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                     title={`Remover reação ${reaction}`}
                     disabled={isReactionLoading}

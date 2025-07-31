@@ -1250,15 +1250,15 @@ class MensagemViewSet(viewsets.ModelViewSet):
             # Obter reações atuais
             reacoes = mensagem.reacoes or []
             
-            # Adicionar ou remover reação
-            if emoji in reacoes:
-                # Remover reação
-                reacoes.remove(emoji)
+            # Verificar se já existe uma reação
+            if reacoes and emoji in reacoes:
+                # Se já tem essa reação, remover
+                reacoes = []
                 action = 'removida'
             else:
-                # Adicionar reação
-                reacoes.append(emoji)
-                action = 'adicionada'
+                # Se não tem reação ou tem outra, substituir
+                reacoes = [emoji]
+                action = 'adicionada' if not reacoes else 'substituída'
             
             # Salvar no banco
             mensagem.reacoes = reacoes
