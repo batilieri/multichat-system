@@ -49,6 +49,11 @@ from .serializers import WebhookMessageSerializer
 from django.http import StreamingHttpResponse
 from django.core.serializers.json import DjangoJSONEncoder
 import time
+import sys
+import os
+
+# Adicionar o caminho para o módulo wapi
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'wapi'))
 
 logger = logging.getLogger(__name__)
 
@@ -1229,7 +1234,7 @@ class MensagemViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='reagir')
     def reagir_mensagem(self, request, pk=None):
         """
-        Adiciona ou remove uma reação de uma mensagem
+        Adiciona ou remove uma reação de uma mensagem e envia para o WhatsApp real
         """
         try:
             mensagem = self.get_object()
@@ -1259,6 +1264,39 @@ class MensagemViewSet(viewsets.ModelViewSet):
             mensagem.reacoes = reacoes
             mensagem.save()
             
+            # Tentar enviar reação para o WhatsApp real
+            wapi_result = None
+            try:
+                # Buscar instância e token
+                from core.models import WhatsappInstance
+                instance = WhatsappInstance.objects.filter(cliente=mensagem.chat.cliente).first()
+                
+                if instance and instance.token and mensagem.message_id:
+                    # Importar e usar a classe de reação
+                    from mensagem.reacao.enviarReacao import EnviarReacao
+                    
+                    reacao_wapi = EnviarReacao(instance.instance_id, instance.token)
+                    
+                    # Extrair número do telefone do chat_id
+                    phone = mensagem.chat.chat_id.split('@')[0] if '@' in mensagem.chat.chat_id else mensagem.chat.chat_id
+                    
+                    # Enviar reação para o WhatsApp
+                    wapi_result = reacao_wapi.enviar_reacao(
+                        phone=phone,
+                        message_id=mensagem.message_id,
+                        reaction=emoji,
+                        delay=1
+                    )
+                    
+                    if wapi_result['sucesso']:
+                        logger.info(f'Reação enviada para WhatsApp: emoji={emoji}, mensagem_id={mensagem.message_id}')
+                    else:
+                        logger.warning(f'Falha ao enviar reação para WhatsApp: {wapi_result["erro"]}')
+                        
+            except Exception as e:
+                logger.error(f'Erro ao enviar reação para WhatsApp: {str(e)}')
+                # Não falhar a operação se o envio para WhatsApp falhar
+            
             logger.info(f'Reação {action}: emoji={emoji}, mensagem_id={mensagem.id}')
             
             return Response({
@@ -1266,6 +1304,7 @@ class MensagemViewSet(viewsets.ModelViewSet):
                 'acao': action,
                 'emoji': emoji,
                 'reacoes': reacoes,
+                'wapi_enviado': wapi_result['sucesso'] if wapi_result else False,
                 'mensagem': f'Reação {action} com sucesso'
             })
             
