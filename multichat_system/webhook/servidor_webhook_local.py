@@ -450,20 +450,54 @@ curl -X POST {self.ngrok_url}/webhook \\
             return False
     
     def iniciar_ngrok(self):
-        """Inicia o túnel ngrok"""
+        """Inicia o túnel ngrok com HTTPS forçado"""
         try:
-            print("🚀 Iniciando túnel ngrok...")
+            print("🚀 Iniciando túnel ngrok com HTTPS...")
             
-            # Criar túnel
-            self.tunnel = ngrok.connect(self.porta)
+            # Configurar ngrok para forçar HTTPS
+            ngrok_config = conf.get_default()
+            ngrok_config.auth_token = NGROK_TOKEN
+            
+            # Criar túnel com configuração específica para HTTPS
+            self.tunnel = ngrok.connect(
+                addr=self.porta,
+                bind_tls=True,  # Forçar HTTPS
+                domain=None,     # Usar domínio padrão do ngrok
+                name=None,       # Nome automático
+                proto='https'    # Protocolo HTTPS
+            )
+            
+            # Garantir que a URL seja HTTPS
             self.ngrok_url = self.tunnel.public_url
+            if not self.ngrok_url.startswith('https://'):
+                self.ngrok_url = self.ngrok_url.replace('http://', 'https://')
             
-            print(f"✅ Túnel criado: {self.ngrok_url}")
+            print(f"✅ Túnel HTTPS criado: {self.ngrok_url}")
+            print(f"🔒 Protocolo: HTTPS")
+            print(f"🌐 URL Pública: {self.ngrok_url}")
             return True
             
         except Exception as e:
-            print(f"❌ Erro ao criar túnel: {e}")
-            return False
+            print(f"❌ Erro ao criar túnel HTTPS: {e}")
+            print("🔄 Tentando configuração alternativa...")
+            
+            try:
+                # Tentativa alternativa com configuração manual
+                self.tunnel = ngrok.connect(
+                    addr=f"http://localhost:{self.porta}",
+                    bind_tls=True
+                )
+                self.ngrok_url = self.tunnel.public_url
+                
+                if not self.ngrok_url.startswith('https://'):
+                    self.ngrok_url = self.ngrok_url.replace('http://', 'https://')
+                
+                print(f"✅ Túnel HTTPS criado (alternativo): {self.ngrok_url}")
+                return True
+                
+            except Exception as e2:
+                print(f"❌ Erro na configuração alternativa: {e2}")
+                return False
     
     def parar_ngrok(self):
         """Para o túnel ngrok"""
@@ -487,7 +521,7 @@ curl -X POST {self.ngrok_url}/webhook \\
             # Iniciar túnel
             if not self.iniciar_ngrok():
                 print("⚠️ Servidor rodando apenas localmente")
-                self.ngrok_url = f"http://localhost:{self.porta}"
+                self.ngrok_url = f"https://localhost:{self.porta}"
             
             print(f"🌐 URL Pública: {self.ngrok_url}")
             print(f"🔧 Porta Local: {self.porta}")

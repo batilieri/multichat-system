@@ -123,11 +123,39 @@ class Chat(models.Model):
         return f"Chat {self.chat_id} - {self.cliente.nome}"
     
     def save(self, *args, **kwargs):
+        # Normalizar chat_id se necessário
+        if self.chat_id:
+            self.chat_id = self.normalize_chat_id(self.chat_id)
+        
         # Gerar group_id único se for um grupo e não tiver um
         if self.is_group and not self.group_id:
             import uuid
             self.group_id = f"group_{uuid.uuid4().hex[:16]}"
         super().save(*args, **kwargs)
+    
+    @staticmethod
+    def normalize_chat_id(chat_id):
+        """
+        Normaliza o chat_id para garantir que seja um número de telefone válido
+        Remove sufixos como @lid, @c.us, etc e extrai apenas o número
+        """
+        if not chat_id:
+            return None
+        
+        import re
+        
+        # Remover sufixos comuns do WhatsApp
+        chat_id = re.sub(r'@[^.]+\.us$', '', chat_id)  # Remove @c.us, @lid, etc
+        chat_id = re.sub(r'@[^.]+$', '', chat_id)      # Remove outros sufixos
+        
+        # Extrair apenas números
+        numbers_only = re.sub(r'[^\d]', '', chat_id)
+        
+        # Validar se é um número de telefone válido (mínimo 10 dígitos)
+        if len(numbers_only) >= 10:
+            return numbers_only
+        
+        return chat_id  # Retornar original se não conseguir normalizar
 
 
 class Mensagem(models.Model):

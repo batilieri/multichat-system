@@ -980,6 +980,28 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     setMessage(prev => prev + emoji)
   }
 
+  // Filtrar chats para o modal de encaminhamento
+  const filteredChats = useMemo(() => {
+    // Mock de chats para demonstração - em produção viria da API
+    const mockChats = [
+      { id: 1, chat_id: '5511999999999', contact_name: 'João Silva', is_group: false },
+      { id: 2, chat_id: '5511888888888', contact_name: 'Maria Santos', is_group: false },
+      { id: 3, chat_id: '5511777777777', group_name: 'Família', is_group: true },
+      { id: 4, chat_id: '5511666666666', group_name: 'Trabalho', is_group: true }
+    ]
+    
+    if (!forwardSearch.trim()) {
+      return mockChats
+    }
+    
+    const searchTerm = forwardSearch.toLowerCase()
+    return mockChats.filter(chat => {
+      const name = chat.is_group ? (chat.group_name || 'Grupo') : (chat.contact_name || chat.chat_id || 'Contato')
+      return name.toLowerCase().includes(searchTerm) || 
+             chat.chat_id.toLowerCase().includes(searchTerm)
+    })
+  }, [forwardSearch])
+
   // Memoizar grupos de mensagens para evitar recálculos desnecessários
   const messageGroups = useMemo(() => {
     console.log('📅 Agrupando mensagens:', messages.length)

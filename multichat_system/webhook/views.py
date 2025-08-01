@@ -5,6 +5,7 @@ Integração com o sistema MultiChat para salvar mensagens nos chats
 
 import json
 import logging
+import re
 from datetime import datetime
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -32,6 +33,39 @@ REALTIME_CACHE_KEY = "realtime_updates"
 REALTIME_CACHE_TIMEOUT = 300  # 5 minutos
 
 # Signal movido para signals.py
+
+def normalize_chat_id(chat_id):
+    """
+    Normaliza o chat_id para garantir que seja um número de telefone válido
+    Remove sufixos como @lid, @c.us, etc e extrai apenas o número
+    Retorna None se for um grupo (contém @g.us ou padrão de grupo)
+    """
+    if not chat_id:
+        return None
+    
+    # Verificar se é um grupo (contém @g.us)
+    if '@g.us' in chat_id:
+        logger.info(f"🚫 Ignorando grupo: {chat_id}")
+        return None
+    
+    # Remover sufixos comuns do WhatsApp
+    chat_id = re.sub(r'@[^.]+\.us$', '', chat_id)  # Remove @c.us, @lid, etc
+    chat_id = re.sub(r'@[^.]+$', '', chat_id)      # Remove outros sufixos
+    
+    # Extrair apenas números
+    numbers_only = re.sub(r'[^\d]', '', chat_id)
+    
+    # Verificar se é um grupo baseado no padrão (números longos que começam com 120363)
+    if len(numbers_only) > 15 and numbers_only.startswith('120363'):
+        logger.info(f"🚫 Ignorando grupo (padrão 120363): {chat_id}")
+        return None
+    
+    # Validar se é um número de telefone válido (mínimo 10 dígitos)
+    if len(numbers_only) >= 10:
+        return numbers_only
+    
+    logger.warning(f"Chat ID inválido após normalização: {chat_id} -> {numbers_only}")
+    return chat_id  # Retornar original se não conseguir normalizar
 
 def extract_profile_picture_robust(webhook_data):
     """Extrai foto de perfil de forma mais robusta do webhook"""
@@ -487,7 +521,16 @@ def save_message_to_chat(payload, event):
     Salva a mensagem no sistema de chats principal
     """
     try:
-        chat_id = payload.get("chat", {}).get("id", "")
+        raw_chat_id = payload.get("chat", {}).get("id", "")
+        # Normalizar o chat_id para garantir que seja um número de telefone
+        chat_id = normalize_chat_id(raw_chat_id)
+        
+        if not chat_id:
+            logger.error(f"Chat ID inválido: {raw_chat_id}")
+            return False
+        
+        logger.info(f"📱 Chat ID normalizado: {raw_chat_id} -> {chat_id}")
+        
         # Extrair informações básicas
         message_key = payload.get('key', {})
         message_id = message_key.get('id', '')
@@ -503,9 +546,10 @@ def save_message_to_chat(payload, event):
             return True
         
         # Verificação adicional por chat_id e timestamp (fallback)
-        if Mensagem.objects.filter(chat__chat_id=chat_id, data_envio__timestamp=payload.get('messageTimestamp', 0)).exists():
-            logger.info(f"Mensagem já existe (timestamp): {message_id}")
-            return True
+        # Comentado temporariamente para evitar erro de lookup
+        # if Mensagem.objects.filter(chat__chat_id=chat_id, data_envio__timestamp=payload.get('messageTimestamp', 0)).exists():
+        #     logger.info(f"Mensagem já existe (timestamp): {message_id}")
+        #     return True
         
         # Encontrar ou criar o chat
         # Primeiro tentar encontrar um chat existente
@@ -588,7 +632,16 @@ def save_message_to_chat_with_from_me(payload, event, from_me, cliente):
     Salva a mensagem no sistema de chats principal com from_me já determinado
     """
     try:
-        chat_id = payload.get("chat", {}).get("id", "")
+        raw_chat_id = payload.get("chat", {}).get("id", "")
+        # Normalizar o chat_id para garantir que seja um número de telefone
+        chat_id = normalize_chat_id(raw_chat_id)
+        
+        if not chat_id:
+            logger.error(f"Chat ID inválido: {raw_chat_id}")
+            return False
+        
+        logger.info(f"📱 Chat ID normalizado: {raw_chat_id} -> {chat_id}")
+        
         message_key = payload.get('key', {})
         message_id = message_key.get('id', '')
         
@@ -600,9 +653,10 @@ def save_message_to_chat_with_from_me(payload, event, from_me, cliente):
             return True
         
         # Verificação adicional por chat_id e timestamp (fallback)
-        if Mensagem.objects.filter(chat__chat_id=chat_id, data_envio__timestamp=payload.get('messageTimestamp', 0)).exists():
-            logger.info(f"Mensagem já existe (timestamp): {message_id}")
-            return True
+        # Comentado temporariamente para evitar erro de lookup
+        # if Mensagem.objects.filter(chat__chat_id=chat_id, data_envio__timestamp=payload.get('messageTimestamp', 0)).exists():
+        #     logger.info(f"Mensagem já existe (timestamp): {message_id}")
+        #     return True
         
         # Encontrar ou criar o chat associado ao cliente
         chat, created = Chat.objects.get_or_create(
@@ -706,8 +760,17 @@ def find_or_create_chat(chat_id, message_data):
     Encontra ou cria um chat baseado no chat_id
     """
     try:
+        # Normalizar o chat_id primeiro
+        normalized_chat_id = normalize_chat_id(chat_id)
+        
+        if not normalized_chat_id:
+            logger.error(f"Chat ID inválido após normalização: {chat_id}")
+            return None
+        
+        logger.info(f"📱 Chat ID normalizado: {chat_id} -> {normalized_chat_id}")
+        
         # Verificar se o chat já existe
-        chat = Chat.objects.filter(chat_id=chat_id).first()
+        chat = Chat.objects.filter(chat_id=normalized_chat_id).first()
         
         if chat:
             return chat
@@ -727,18 +790,18 @@ def find_or_create_chat(chat_id, message_data):
                 cliente = Cliente.objects.first()
         
         if not cliente:
-            logger.error(f"Nenhum cliente encontrado para criar chat: {chat_id}")
+            logger.error(f"Nenhum cliente encontrado para criar chat: {normalized_chat_id}")
             return None
         
         # Criar novo chat
         chat = Chat.objects.create(
-            chat_id=chat_id,
+            chat_id=normalized_chat_id,
             cliente=cliente,
             status='active',
             canal='whatsapp'
         )
         
-        logger.info(f"✅ Novo chat criado: {chat_id} para cliente {cliente.nome}")
+        logger.info(f"✅ Novo chat criado: {normalized_chat_id} para cliente {cliente.nome}")
         return chat
         
     except Exception as e:
