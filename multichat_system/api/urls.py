@@ -16,7 +16,7 @@ Data: 2025-07-11
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from .views import UsuarioViewSet, recuperar_status_whatsapp, WebhookMessageViewSet, test_chats_public
+from .views import UsuarioViewSet, recuperar_status_whatsapp, WebhookMessageViewSet, test_chats_public, serve_audio, serve_audio_by_message, serve_wapi_media
 
 # Router principal para ViewSets
 router = DefaultRouter()
@@ -42,6 +42,15 @@ urlpatterns = [
     
     # Endpoint público para teste
     path('test-chats/', test_chats_public, name='test_chats_public'),
+    
+    # Endpoint para servir áudios
+    path('audio/<path:audio_path>/', serve_audio, name='serve_audio'),
+    
+    # Endpoint para servir áudio por ID da mensagem
+    path('audio/message/<int:message_id>/', views.serve_audio_by_message, name='serve_audio_by_message'),
+    
+    # Endpoint para servir mídias baixadas da pasta /wapi/midias/
+    path('wapi-media/<str:media_type>/<path:filename>/', views.serve_wapi_media, name='serve_wapi_media'),
     
     # Endpoints adicionais podem ser adicionados aqui
     # path('custom-endpoint/', views.CustomView.as_view(), name='custom-endpoint'),

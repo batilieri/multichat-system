@@ -38,11 +38,11 @@ def notify_realtime_update(update_type, chat_id, data):
         # Salvar no cache
         cache.set(REALTIME_CACHE_KEY, updates, REALTIME_CACHE_TIMEOUT)
         
-        print(f"✅ Atualização em tempo real salva no cache: {update_type}")
-        print(f"📊 Total de atualizações no cache: {len(updates)}")
+        print(f"OK - Atualização em tempo real salva no cache: {update_type}")
+        print(f"INFO - Total de atualizações no cache: {len(updates)}")
         
     except Exception as e:
-        print(f"❌ Erro ao notificar atualização em tempo real: {e}")
+        print(f"ERRO - Erro ao notificar atualização em tempo real: {e}")
 
 def notify_all_chats_update(update_type, data):
     """
@@ -72,11 +72,11 @@ def notify_all_chats_update(update_type, data):
         # Salvar no cache
         cache.set(REALTIME_CACHE_KEY, updates, REALTIME_CACHE_TIMEOUT)
         
-        print(f"✅ Atualização global salva no cache: {update_type} para {all_chats.count()} chats")
-        print(f"📊 Total de atualizações no cache: {len(updates)}")
+        print(f"OK - Atualização global salva no cache: {update_type} para {all_chats.count()} chats")
+        print(f"INFO - Total de atualizações no cache: {len(updates)}")
         
     except Exception as e:
-        print(f"❌ Erro ao notificar atualização global: {e}")
+        print(f"ERRO - Erro ao notificar atualização global: {e}")
 
 @receiver(post_save, sender=Mensagem)
 def mensagem_saved_handler(sender, instance, created, **kwargs):
@@ -84,7 +84,7 @@ def mensagem_saved_handler(sender, instance, created, **kwargs):
     Signal handler para quando uma mensagem é salva
     """
     if created:
-        print(f"🔔 Signal disparado: Mensagem {instance.id} criada")
+        print(f"SIGNAL - Signal disparado: Mensagem {instance.id} criada")
         
         # Preparar dados da mensagem para o frontend
         message_data = {
@@ -114,11 +114,11 @@ def mensagem_saved_handler(sender, instance, created, **kwargs):
         
         notify_all_chats_update('global_new_message', global_update_data)
         
-        print(f"📝 Dados da atualização: {message_data}")
-        print(f"🌐 Atualização global enviada para todos os chats")
+        print(f"INFO - Dados da atualização: {message_data}")
+        print("INFO - Atualizacao global enviada para todos os chats")
     else:
         # Mensagem atualizada (não criada)
-        print(f"🔄 Signal disparado: Mensagem {instance.id} atualizada")
+        print(f"INFO - Signal disparado: Mensagem {instance.id} atualizada")
         
         # Notificar atualização de mensagem
         update_data = {

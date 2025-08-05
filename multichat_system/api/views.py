@@ -52,6 +52,7 @@ from django.core.serializers.json import DjangoJSONEncoder
 import time
 import sys
 import os
+from django.http import FileResponse, Http404
 
 # Adicionar o caminho para o módulo wapi
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'wapi'))
@@ -2321,4 +2322,193 @@ def test_chats_public(request):
             'status': 'error',
             'message': str(e)
         }, status=500)
+
+
+@api_view(['GET'])
+def serve_audio(request, audio_path):
+    """
+    Serve áudios processados
+    """
+    try:
+        # Construir caminho completo do arquivo
+        full_path = os.path.join(settings.MEDIA_ROOT, audio_path)
+        
+        # Verificar se o arquivo existe
+        if not os.path.exists(full_path):
+            raise Http404("Áudio não encontrado")
+        
+        # Verificar se é um arquivo de áudio
+        if not full_path.lower().endswith(('.mp3', '.ogg', '.wav', '.m4a')):
+            raise Http404("Arquivo não é um áudio válido")
+        
+        # Servir o arquivo
+        response = FileResponse(open(full_path, 'rb'))
+        response['Content-Type'] = 'audio/mpeg'
+        response['Content-Disposition'] = f'inline; filename="{os.path.basename(full_path)}"'
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao servir áudio: {e}")
+        return Response({'error': 'Erro ao servir áudio'}, status=500)
+
+
+@api_view(['GET'])
+def serve_audio_by_message(request, message_id):
+    """
+    Serve áudio processado pelo ID da mensagem - INTEGRADO COM /wapi/midias/
+    """
+    try:
+        # Buscar mensagem de áudio
+        mensagem = Mensagem.objects.get(id=message_id, tipo='audio')
+        
+        logger.info(f"Servindo áudio para mensagem {message_id}")
+        
+        # Tentar extrair caminho do áudio do conteúdo JSON
+        audio_path = None
+        
+        if mensagem.conteudo:
+            try:
+                conteudo_json = json.loads(mensagem.conteudo)
+                audio_message = conteudo_json.get('audioMessage', {})
+                
+                # Prioridade 1: localPath (arquivo já baixado)
+                if audio_message.get('localPath') and os.path.exists(audio_message['localPath']):
+                    full_path = audio_message['localPath']
+                    logger.info(f"Usando localPath: {full_path}")
+                
+                # Prioridade 2: url relativa para /wapi/midias/
+                elif audio_message.get('url') and audio_message['url'].startswith('/wapi/midias/'):
+                    project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))  # Voltar para raiz do projeto
+                    full_path = os.path.join(project_root, audio_message['url'][1:])  # Remove '/' inicial
+                    logger.info(f"Usando URL relativa: {full_path}")
+                
+                # Prioridade 3: procurar por nome do arquivo
+                elif audio_message.get('fileName'):
+                    project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                    full_path = os.path.join(project_root, 'wapi', 'midias', 'audios', audio_message['fileName'])
+                    logger.info(f"Procurando por fileName: {full_path}")
+                
+                else:
+                    logger.warning(f"Nenhum caminho de áudio encontrado no JSON: {audio_message}")
+                    
+            except json.JSONDecodeError:
+                logger.error(f"Erro ao decodificar JSON do conteúdo da mensagem {message_id}")
+        
+        # Fallback: procurar na pasta /wapi/midias/audios/
+        if not audio_path or not os.path.exists(full_path):
+            logger.info(f"Procurando áudio na pasta wapi/midias/audios/")
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+            audios_dir = os.path.join(project_root, 'wapi', 'midias', 'audios')
+            
+            if os.path.exists(audios_dir):
+                # Procurar arquivos de áudio na pasta
+                for ext in ['*.mp3', '*.ogg', '*.m4a', '*.wav']:
+                    import glob
+                    arquivos = glob.glob(os.path.join(audios_dir, ext))
+                    if arquivos:
+                        # Usar o primeiro arquivo encontrado (pode ser melhorado)
+                        full_path = arquivos[0]
+                        logger.info(f"Usando primeiro áudio encontrado: {full_path}")
+                        break
+        
+        # Verificar se o arquivo existe
+        if not full_path or not os.path.exists(full_path):
+            logger.error(f"Arquivo de áudio não encontrado para mensagem {message_id}")
+            raise Http404("Arquivo de áudio não encontrado")
+        
+        # Servir o arquivo
+        response = FileResponse(open(full_path, 'rb'))
+        
+        # Determinar Content-Type baseado na extensão
+        if full_path.lower().endswith('.mp3'):
+            response['Content-Type'] = 'audio/mpeg'
+        elif full_path.lower().endswith('.ogg'):
+            response['Content-Type'] = 'audio/ogg'
+        elif full_path.lower().endswith('.m4a'):
+            response['Content-Type'] = 'audio/mp4'
+        elif full_path.lower().endswith('.wav'):
+            response['Content-Type'] = 'audio/wav'
+        else:
+            response['Content-Type'] = 'audio/mpeg'
+        
+        response['Content-Disposition'] = f'inline; filename="audio_{message_id}.{os.path.splitext(full_path)[1][1:]}"'
+        
+        logger.info(f"OK - Servindo áudio da mensagem {message_id}: {full_path}")
+        return response
+        
+    except Mensagem.DoesNotExist:
+        logger.error(f"ERRO - Mensagem de áudio não encontrada: {message_id}")
+        raise Http404("Mensagem de áudio não encontrada")
+    except Exception as e:
+        logger.error(f"ERRO - Erro ao servir áudio da mensagem {message_id}: {e}")
+        return Response({'error': 'Erro ao servir áudio'}, status=500)
+
+
+@api_view(['GET'])
+def serve_wapi_media(request, media_type, filename):
+    """
+    Serve mídias baixadas da pasta /wapi/midias/
+    """
+    try:
+        # Validar tipo de mídia
+        allowed_types = ['audios', 'imagens', 'videos', 'documentos', 'stickers']
+        if media_type not in allowed_types:
+            raise Http404("Tipo de mídia não suportado")
+        
+        # Construir caminho do arquivo
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        file_path = os.path.join(project_root, 'wapi', 'midias', media_type, filename)
+        
+        # Verificar se o arquivo existe
+        if not os.path.exists(file_path):
+            logger.error(f"Arquivo não encontrado: {file_path}")
+            raise Http404("Arquivo não encontrado")
+        
+        # Verificar se é um arquivo válido (não diretório)
+        if not os.path.isfile(file_path):
+            raise Http404("Caminho inválido")
+        
+        # Determinar Content-Type baseado na extensão e tipo
+        content_type = 'application/octet-stream'  # Default
+        
+        file_ext = os.path.splitext(filename)[1].lower()
+        
+        if media_type == 'audios':
+            if file_ext == '.mp3':
+                content_type = 'audio/mpeg'
+            elif file_ext == '.ogg':
+                content_type = 'audio/ogg'
+            elif file_ext == '.m4a':
+                content_type = 'audio/mp4'
+            elif file_ext == '.wav':
+                content_type = 'audio/wav'
+        elif media_type == 'imagens':
+            if file_ext in ['.jpg', '.jpeg']:
+                content_type = 'image/jpeg'
+            elif file_ext == '.png':
+                content_type = 'image/png'
+            elif file_ext == '.gif':
+                content_type = 'image/gif'
+            elif file_ext == '.webp':
+                content_type = 'image/webp'
+        elif media_type == 'videos':
+            if file_ext == '.mp4':
+                content_type = 'video/mp4'
+            elif file_ext == '.webm':
+                content_type = 'video/webm'
+            elif file_ext == '.avi':
+                content_type = 'video/avi'
+        
+        # Servir o arquivo
+        response = FileResponse(open(file_path, 'rb'))
+        response['Content-Type'] = content_type
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+        
+        logger.info(f"OK - Servindo mídia: {media_type}/{filename}")
+        return response
+        
+    except Exception as e:
+        logger.error(f"ERRO - Erro ao servir mídia {media_type}/{filename}: {e}")
+        return Response({'error': 'Erro ao servir mídia'}, status=500)
 

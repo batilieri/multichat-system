@@ -15,6 +15,9 @@ from .models import (
     MessageMedia, MessageStats, ContactStats, RealTimeStats
 )
 from .media_downloader import processar_midias_automaticamente
+from .audio_processor import process_audio_from_webhook
+from .audio_processor_simple import process_audio_from_webhook_simple
+import subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +174,17 @@ class WhatsAppWebhookProcessor:
             timestamp = self._parse_timestamp(data.get('messageTimestamp', ''))
             
             # Foto de perfil do contato
-            foto_perfil = chat_data.get('profilePicture') or data.get('profilePicture')
+            # LÓGICA CORRIGIDA: Priorizar foto do chat quando fromMe=true
+            foto_perfil = None
+            
+            if from_me:
+                # Se é mensagem enviada pelo usuário, priorizar foto do chat (contato/grupo)
+                foto_perfil = chat_data.get('profilePicture') or data.get('profilePicture')
+                logger.info(f"🔄 Mensagem enviada pelo usuário - usando foto do chat: {foto_perfil}")
+            else:
+                # Se é mensagem recebida, usar lógica normal
+                foto_perfil = chat_data.get('profilePicture') or data.get('profilePicture')
+                logger.info(f"📥 Mensagem recebida - usando foto do chat: {foto_perfil}")
             
             # Atualizar evento com dados processados
             webhook_event.chat_id = chat_id
@@ -413,6 +426,46 @@ class WhatsAppWebhookProcessor:
             media_key = media_data.get('mediaKey')
             direct_path = media_data.get('directPath')
             media_key_timestamp = media_data.get('mediaKeyTimestamp')
+            
+            # PROCESSAMENTO ESPECIAL PARA ÁUDIOS
+            if message_type == 'audio':
+                logger.info(f"🎵 Processando áudio: {message_id}")
+                
+                # Verificar se FFmpeg está disponível
+                ffmpeg_available = False
+                try:
+                    result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, timeout=5)
+                    ffmpeg_available = result.returncode == 0
+                except (FileNotFoundError, subprocess.TimeoutExpired):
+                    ffmpeg_available = False
+                
+                if ffmpeg_available:
+                    logger.info("✅ FFmpeg disponível - usando processador completo")
+                    # Processar áudio usando o processador completo
+                    audio_result = process_audio_from_webhook({
+                        'msgContent': message_content,
+                        'messageId': message_id
+                    }, self.cliente)
+                else:
+                    logger.warning("⚠️ FFmpeg não disponível - usando processador simplificado")
+                    # Processar áudio usando o processador simplificado
+                    audio_result = process_audio_from_webhook_simple({
+                        'msgContent': message_content,
+                        'messageId': message_id
+                    }, self.cliente)
+                
+                if audio_result and audio_result.get('status') == 'success':
+                    # Atualizar URL para o arquivo processado
+                    media_url = f"/media/{audio_result['file_path']}"
+                    media_size = audio_result.get('file_size', 0)
+                    media_type = 'audio'
+                    
+                    logger.info(f"✅ Áudio processado com sucesso: {media_url}")
+                    if audio_result.get('note'):
+                        logger.info(f"📝 Nota: {audio_result['note']}")
+                else:
+                    logger.warning(f"⚠️ Falha ao processar áudio: {message_id}")
+            
             # Documento
             if message_type == 'document':
                 document_url = media_data.get('url')
@@ -537,10 +590,34 @@ class WhatsAppWebhookProcessor:
         
         # Também criar mensagem no modelo core.Mensagem para compatibilidade com o frontend
         if not CoreMensagem.objects.filter(message_id=message_id).exists():
+            # Preparar conteúdo estruturado para diferentes tipos de mídia
+            conteudo_estruturado = text_content or "[Mídia]"
+            
+            # Para mensagens de áudio, criar JSON estruturado que o frontend espera
+            if message_type == 'audio' and message_content.get('audioMessage'):
+                import json
+                audio_data = message_content['audioMessage']
+                conteudo_estruturado = json.dumps({
+                    "audioMessage": {
+                        "url": audio_data.get('url', ''),
+                        "mediaKey": audio_data.get('mediaKey', ''),
+                        "mimetype": audio_data.get('mimetype', 'audio/ogg'),
+                        "fileLength": audio_data.get('fileLength', ''),
+                        "seconds": audio_data.get('seconds', 0),
+                        "ptt": audio_data.get('ptt', False),
+                        "directPath": audio_data.get('directPath', ''),
+                        "fileSha256": audio_data.get('fileSha256', ''),
+                        "fileEncSha256": audio_data.get('fileEncSha256', ''),
+                        "mediaKeyTimestamp": audio_data.get('mediaKeyTimestamp', ''),
+                        "waveform": audio_data.get('waveform', '')
+                    }
+                }, ensure_ascii=False)
+                logger.info(f"OK - Criando mensagem de áudio estruturada para frontend")
+            
             CoreMensagem.objects.create(
                 chat=chat,
                 remetente=sender.push_name or sender.sender_id,
-                conteudo=text_content or "Mídia",
+                conteudo=conteudo_estruturado,
                 tipo=message_type,
                 data_envio=timestamp,
                 from_me=from_me,
@@ -718,7 +795,19 @@ class WhatsAppWebhookProcessor:
                 return
             
             # Outros campos seguindo os dados mockados
-            message_type = 'text' if 'conversation' in msg_content or 'extendedTextMessage' in msg_content else 'unknown'
+            # Detectar tipo de mensagem baseado no msgContent
+            if 'audioMessage' in msg_content:
+                message_type = 'audio'
+            elif 'imageMessage' in msg_content:
+                message_type = 'image'
+            elif 'videoMessage' in msg_content:
+                message_type = 'video'
+            elif 'documentMessage' in msg_content:
+                message_type = 'document'
+            elif 'conversation' in msg_content or 'extendedTextMessage' in msg_content:
+                message_type = 'text'
+            else:
+                message_type = 'unknown'
             
             # Extrair texto de múltiplas fontes possíveis
             text_content = ''
@@ -734,19 +823,7 @@ class WhatsAppWebhookProcessor:
             group_name = data.get('groupName') if is_group else None
             
             # Extrair foto de perfil de múltiplas fontes possíveis
-            profile_picture = None
-            
-            # Prioridade 1: Foto do sender (remetente)
-            if sender_data.get('profilePicture'):
-                profile_picture = sender_data.get('profilePicture')
-            # Prioridade 2: Foto do chat
-            elif chat_data.get('profilePicture'):
-                profile_picture = chat_data.get('profilePicture')
-            # Prioridade 3: Foto no nível raiz do webhook
-            elif data.get('profilePicture'):
-                profile_picture = data.get('profilePicture')
-            
-            # LÓGICA MELHORADA PARA DETERMINAR from_me
+            # LÓGICA MELHORADA PARA DETERMINAR from_me - MOVIDO PARA CIMA
             from_me = False
             
             # Método 1: Verificar campo fromMe no payload raiz
@@ -764,6 +841,33 @@ class WhatsAppWebhookProcessor:
                 # Se o sender_id é o mesmo do chat_id (para chats individuais), pode ser do usuário
                 elif sender_id and chat_id and sender_id == chat_id:
                     from_me = True
+
+            profile_picture = None
+            
+            # LÓGICA CORRIGIDA: Priorizar foto do chat quando fromMe=true
+            if from_me:
+                # Se é mensagem enviada pelo usuário, priorizar foto do chat (contato/grupo)
+                # e evitar usar a foto do sender (usuário)
+                if chat_data.get('profilePicture'):
+                    profile_picture = chat_data.get('profilePicture')
+                elif data.get('profilePicture'):
+                    profile_picture = data.get('profilePicture')
+                # Última opção: sender (apenas se não houver outras)
+                elif sender_data.get('profilePicture'):
+                    profile_picture = sender_data.get('profilePicture')
+                logger.info(f"OK - Mensagem enviada pelo usuário - priorizando foto do chat: {profile_picture}")
+            else:
+                # Se é mensagem recebida, usar lógica normal
+                # Prioridade 1: Foto do sender (remetente)
+                if sender_data.get('profilePicture'):
+                    profile_picture = sender_data.get('profilePicture')
+                # Prioridade 2: Foto do chat
+                elif chat_data.get('profilePicture'):
+                    profile_picture = chat_data.get('profilePicture')
+                # Prioridade 3: Foto no nível raiz do webhook
+                elif data.get('profilePicture'):
+                    profile_picture = data.get('profilePicture')
+                logger.info(f"INFO - Mensagem recebida - usando lógica normal: {profile_picture}")
 
             # Log detalhado
             logger.info(f"[FALLBACK] Criando chat_id: {chat_id}, sender_name: {sender_name}, message_id: {message_id}, texto: '{text_content}', is_group: {is_group}, from_me: {from_me}, profile_picture: {profile_picture}")
@@ -804,7 +908,10 @@ class WhatsAppWebhookProcessor:
                 )
                 
                 # Criar mensagem usando core.Mensagem (apenas se não existir e não for protocolo)
-                if message_id and text_content and not is_protocol_message and not CoreMensagem.objects.filter(message_id=message_id).exists():
+                # Para áudios e outras mídias, o text_content pode estar vazio, mas temos msg_content
+                has_valid_content = text_content or (msg_content and any(key in msg_content for key in ['audioMessage', 'imageMessage', 'videoMessage', 'documentMessage']))
+                
+                if message_id and has_valid_content and not is_protocol_message and not CoreMensagem.objects.filter(message_id=message_id).exists():
                     # Buscar ou criar chat no modelo core.Chat
                     core_chat, created = CoreChat.objects.get_or_create(
                         chat_id=chat_id,
@@ -827,10 +934,34 @@ class WhatsAppWebhookProcessor:
                             core_chat.foto_perfil = profile_picture
                         core_chat.save()
                     
+                    # Preparar conteúdo estruturado para diferentes tipos de mídia
+                    conteudo_estruturado = text_content or "[Mídia]"
+                    
+                    # Para mensagens de áudio, criar JSON estruturado que o frontend espera
+                    if message_type == 'audio' and msg_content.get('audioMessage'):
+                        import json
+                        audio_data = msg_content['audioMessage']
+                        conteudo_estruturado = json.dumps({
+                            "audioMessage": {
+                                "url": audio_data.get('url', ''),
+                                "mediaKey": audio_data.get('mediaKey', ''),
+                                "mimetype": audio_data.get('mimetype', 'audio/ogg'),
+                                "fileLength": audio_data.get('fileLength', ''),
+                                "seconds": audio_data.get('seconds', 0),
+                                "ptt": audio_data.get('ptt', False),
+                                "directPath": audio_data.get('directPath', ''),
+                                "fileSha256": audio_data.get('fileSha256', ''),
+                                "fileEncSha256": audio_data.get('fileEncSha256', ''),
+                                "mediaKeyTimestamp": audio_data.get('mediaKeyTimestamp', ''),
+                                "waveform": audio_data.get('waveform', '')
+                            }
+                        }, ensure_ascii=False)
+                        logger.info(f"[FALLBACK] OK - Criando mensagem de áudio estruturada")
+                    
                     CoreMensagem.objects.create(
                         chat=core_chat,  # Agora usando o chat do modelo core.Chat
                         remetente=sender_name or sender_id or "desconhecido",
-                        conteudo=text_content,
+                        conteudo=conteudo_estruturado,
                         tipo=message_type,
                         lida=False,
                         from_me=from_me,
@@ -863,31 +994,34 @@ class WhatsAppWebhookProcessor:
                 logger.error(f"[FALLBACK] chat_id está vazio ou None: '{chat_id}' (bloqueado por validação extra)")
                 return None
             
-            # Buscar chat existente no modelo core.Chat
-            chat = Chat.objects.filter(chat_id=safe_chat_id, cliente=self.cliente).first()
-            if chat:
-                # Atualizar campos relevantes
-                chat.status = 'active'
+            # Usar get_or_create para evitar problemas de duplicação
+            safe_chat_name = sender_name or (group_name if is_group else safe_chat_id)
+            chat, created = CoreChat.objects.get_or_create(
+                chat_id=safe_chat_id,
+                cliente=self.cliente,
+                defaults={
+                    'chat_name': safe_chat_name,
+                    'is_group': is_group,
+                    'canal': 'whatsapp',
+                    'status': 'ativo',
+                    'last_message_at': django_timezone.now(),
+                    'foto_perfil': profile_picture
+                }
+            )
+            
+            # Se chat já existia, atualizar campos relevantes
+            if not created:
+                chat.status = 'ativo'
                 chat.last_message_at = django_timezone.now()
                 # Atualizar foto de perfil se uma nova foi fornecida
-                if profile_picture and chat.profile_picture != profile_picture:
-                    chat.profile_picture = profile_picture
+                if profile_picture and chat.foto_perfil != profile_picture:
+                    chat.foto_perfil = profile_picture
                 chat.save()
                 logger.info(f"[FALLBACK] Chat existente atualizado: {chat.chat_id} - Foto: {profile_picture}")
-                return chat
             else:
-                safe_chat_name = sender_name or (group_name if is_group else safe_chat_id)
-                chat = Chat.objects.create(
-                    chat_id=safe_chat_id,
-                    cliente=self.cliente,
-                    chat_name=safe_chat_name,
-                    is_group=is_group,
-                    status='active',
-                    last_message_at=django_timezone.now(),
-                    profile_picture=profile_picture  # Usar profile_picture em vez de foto_perfil
-                )
                 logger.info(f"[FALLBACK] Chat criado: {chat.chat_id} - Foto: {profile_picture}")
-                return chat
+            
+            return chat
         except Exception as e:
             logger.error(f"[FALLBACK] Erro ao criar/obter chat: {e}")
             logger.error(f"[FALLBACK] Parâmetros: chat_id={chat_id}, sender_name={sender_name}, is_group={is_group}, group_name={group_name}, profile_picture={profile_picture}")
