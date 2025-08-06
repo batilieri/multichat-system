@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from core.models import Cliente, Departamento, WhatsappInstance, Chat, Mensagem, WebhookEvent
+from core.models import Cliente, Departamento, WhatsappInstance, Chat, Mensagem, WebhookEvent, MediaFile
 from authentication.models import Usuario  # Importação corrigida para o modelo de usuário
 
 
@@ -311,6 +311,42 @@ class WebhookMessageSerializer(serializers.ModelSerializer):
     def get_sender_display_name(self, obj):
         """Retorna o nome de exibição do remetente para grupos"""
         return obj.get_sender_display_name()
+
+
+class MediaFileSerializer(serializers.ModelSerializer):
+    """Serializer para MediaFile"""
+    cliente_nome = serializers.CharField(source='cliente.nome', read_only=True)
+    instance_id = serializers.CharField(source='instance.instance_id', read_only=True)
+    file_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = MediaFile
+        fields = [
+            'id', 'cliente', 'cliente_nome', 'instance', 'instance_id', 'chat',
+            'message_id', 'sender_name', 'sender_id', 'media_type', 'mimetype',
+            'file_name', 'file_path', 'file_size', 'caption', 'width', 'height',
+            'duration_seconds', 'is_ptt', 'download_status', 'is_group', 'from_me',
+            'media_key', 'direct_path', 'file_sha256', 'file_enc_sha256',
+            'media_key_timestamp', 'message_timestamp', 'download_timestamp',
+            'created_at', 'updated_at', 'file_url'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_file_url(self, obj):
+        """Retorna a URL para acessar o arquivo"""
+        if obj.file_path and obj.download_status == 'success':
+            # Usar o endpoint de mídias WAPI
+            if obj.media_type == 'audio':
+                return f"/api/wapi-media/audios/{obj.file_name}"
+            elif obj.media_type == 'image':
+                return f"/api/wapi-media/imagens/{obj.file_name}"
+            elif obj.media_type == 'video':
+                return f"/api/wapi-media/videos/{obj.file_name}"
+            elif obj.media_type == 'document':
+                return f"/api/wapi-media/documentos/{obj.file_name}"
+            elif obj.media_type == 'sticker':
+                return f"/api/wapi-media/stickers/{obj.file_name}"
+        return None
 
 
 

@@ -324,85 +324,136 @@ def webhook_disconnect(request):
 
 
 def process_webhook_message(webhook_data, event_type):
-    """
-    Processa mensagens do webhook do WhatsApp
-    """
+    """Processa mensagens de webhook com download automático de mídias"""
     try:
-        print(f"📨 Processando mensagem: {event_type}")
+        print("🎯 WhatsApp detectado!")
+        print("🔄 Processando dados do WhatsApp...")
         
         # Extrair dados básicos
         instance_id = webhook_data.get('instanceId')
         message_id = webhook_data.get('messageId')
+        from_me = webhook_data.get('fromMe', False)
+        is_group = webhook_data.get('isGroup', False)
         
-        if not instance_id:
-            print("❌ instanceId não encontrado")
-            return False
+        # Buscar cliente e instância
+        cliente = None
+        instance = None
         
-        # Buscar instância no banco
         try:
             instance = WhatsappInstance.objects.get(instance_id=instance_id)
             cliente = instance.cliente
+            print(f"👤 Cliente: {cliente.nome}")
         except WhatsappInstance.DoesNotExist:
-            print(f"❌ Instância {instance_id} não encontrada")
+            print(f"❌ Instância não encontrada: {instance_id}")
             return False
         
-        # IDENTIFICAÇÃO AUTOMÁTICA: Determinar se é mensagem enviada pelo usuário
-        from_me = determine_from_me_saas(webhook_data, instance_id)
-        print(f"🔍 from_me determinado: {from_me}")
+        # Processar mídia automaticamente se presente
+        msg_content = webhook_data.get('msgContent', {})
+        media_downloaded = process_media_automatically(webhook_data, cliente, instance)
         
-        # Verificar se a mensagem já foi processada
-        if message_id and Mensagem.objects.filter(message_id=message_id).exists():
-            print(f"⚠️ Mensagem já processada: {message_id}")
-            return True
+        if media_downloaded:
+            print(f"✅ Mídia processada automaticamente: {message_id}")
         
-        # Criar evento de webhook
-        event = WebhookEvent.objects.create(
-            cliente=cliente,
-            instance_id=instance_id,
-            event_type=event_type,
-            raw_data=webhook_data,
-            ip_address='127.0.0.1',  # Para testes
-            user_agent='Test Agent'
-        )
-        
-        # SALVAR MENSAGEM COM from_me CORRETO
-        if 'msgContent' in webhook_data or 'data' in webhook_data:
-            try:
-                # Usar a função save_message_to_chat com from_me já determinado
-                success = save_message_to_chat_with_from_me(webhook_data, event, from_me, cliente)
-                if success:
-                    print(f"✅ Mensagem salva com from_me={from_me}")
-                    
-                    # Processar mídia automaticamente se for uma mensagem de mídia
-                    msg_content = webhook_data.get('msgContent', {})
-                    if any(media_type in msg_content for media_type in [
-                        'imageMessage', 'videoMessage', 'audioMessage', 
-                        'documentMessage', 'stickerMessage'
-                    ]):
-                        try:
-                            # Usar analisador completo para processar mídia
-                            resultado = processar_webhook_whatsapp(webhook_data)
-                            
-                            if resultado.get('sucesso'):
-                                print(f"✅ Mídia processada com sucesso para mensagem {message_id}")
-                            else:
-                                print(f"❌ Falha no processamento de mídia: {resultado.get('erro')}")
-                                
-                        except Exception as e:
-                            print(f"❌ Erro ao processar mídia: {e}")
-                    
-                    return True
-                else:
-                    print("⚠️ Falha ao salvar mensagem")
-                    return False
-            except Exception as e:
-                print(f"❌ Erro ao salvar mensagem: {e}")
-                return False
-        
-        return True
+        # Continuar com o processamento normal
+        return process_whatsapp_message(webhook_data, event_type)
         
     except Exception as e:
-        print(f"❌ Erro ao processar mensagem: {e}")
+        print(f"❌ Erro ao processar webhook: {e}")
+        return JsonResponse({'error': 'Erro interno do servidor'}, status=500)
+
+def process_media_automatically(webhook_data, cliente, instance):
+    """Processa mídias automaticamente quando recebidas via webhook"""
+    try:
+        msg_content = webhook_data.get('msgContent', {})
+        message_id = webhook_data.get('messageId')
+        
+        # Detectar tipo de mídia
+        media_types = {
+            'imageMessage': 'image',
+            'videoMessage': 'video', 
+            'audioMessage': 'audio',
+            'documentMessage': 'document',
+            'stickerMessage': 'sticker'
+        }
+        
+        detected_media = None
+        media_type = None
+        
+        for content_key, media_type_name in media_types.items():
+            if content_key in msg_content:
+                detected_media = msg_content[content_key]
+                media_type = media_type_name
+                break
+        
+        if not detected_media:
+            return False
+        
+        print(f"📎 Mídia detectada: {media_type}")
+        print(f"📋 Dados da mídia: {list(detected_media.keys())}")
+        
+        # Extrair dados necessários para download
+        media_key = detected_media.get('mediaKey', '')
+        direct_path = detected_media.get('directPath', '')
+        mimetype = detected_media.get('mimetype', '')
+        file_length = detected_media.get('fileLength', 0)
+        caption = detected_media.get('caption', '')
+        
+        # Dados do remetente
+        sender = webhook_data.get('sender', {})
+        sender_name = sender.get('pushName', 'Desconhecido')
+        sender_id = sender.get('id', '')
+        
+        # Fazer download da mídia
+        if media_key and direct_path and mimetype:
+            print(f"🔄 Iniciando download da mídia...")
+            
+            # Preparar dados para W-API
+            media_data = {
+                'mediaKey': media_key,
+                'directPath': direct_path,
+                'type': media_type,
+                'mimetype': mimetype
+            }
+            
+            # Fazer download via W-API
+            wapi_result = download_media_via_wapi(
+                instance.instance_id,
+                instance.token,
+                media_data
+            )
+            
+            if wapi_result and wapi_result.get('fileLink'):
+                # Salvar arquivo
+                file_path = save_media_file(
+                    wapi_result['fileLink'],
+                    media_type,
+                    message_id,
+                    sender_name,
+                    cliente,
+                    instance
+                )
+                
+                if file_path:
+                    print(f"✅ Mídia processada com sucesso!")
+                    print(f"📁 Arquivo salvo: {file_path}")
+                    return True
+                else:
+                    print(f"❌ Falha ao salvar arquivo")
+                    return False
+            else:
+                print(f"❌ Falha no download via W-API")
+                return False
+        else:
+            print(f"⚠️ Dados insuficientes para download:")
+            print(f"   mediaKey: {'✅' if media_key else '❌'}")
+            print(f"   directPath: {'✅' if direct_path else '❌'}")
+            print(f"   mimetype: {'✅' if mimetype else '❌'}")
+            return False
+            
+    except Exception as e:
+        print(f"❌ Erro ao processar mídia automaticamente: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 
@@ -532,20 +583,20 @@ def process_whatsapp_message(webhook_data, event):
             
             if not messages:
                 logger.warning("Nenhuma mensagem encontrada no webhook")
-                return False
+                return JsonResponse({'status': 'ignored', 'message': 'Nenhuma mensagem encontrada'})
             
             # Processar cada mensagem
             for message_data in messages:
                 success = save_message_to_chat(webhook_data, event)
                 if not success:
                     logger.error(f"Falha ao salvar mensagem: {message_data.get('key', {}).get('id', 'unknown')}")
-                    return False
+                    return JsonResponse({'error': 'Falha ao salvar mensagem'}, status=500)
             
-            return True
+            return JsonResponse({'status': 'success', 'message': 'Mensagem processada com sucesso'})
             
     except Exception as e:
         logger.error(f"❌ Erro ao processar mensagem: {e}")
-        return False
+        return JsonResponse({'error': 'Erro interno do servidor'}, status=500)
 
 
 def save_message_to_chat(payload, event):
@@ -1138,4 +1189,154 @@ def webhook_status(request):
         return Response({
             'error': str(e)
         }, status=500)
+
+
+def download_media_via_wapi(instance_id, bearer_token, media_data):
+    """Faz download de mídia diretamente via API W-API com melhor tratamento de erros"""
+    try:
+        import requests
+        import json
+        import time
+        
+        url = f"https://api.w-api.app/v1/message/download-media?instanceId={instance_id}"
+        
+        headers = {
+            'Authorization': f'Bearer {bearer_token}',
+            'Content-Type': 'application/json'
+        }
+        
+        payload = {
+            'mediaKey': media_data.get('mediaKey', ''),
+            'directPath': media_data.get('directPath', ''),
+            'type': media_data.get('type', ''),
+            'mimetype': media_data.get('mimetype', '')
+        }
+        
+        print(f"🔄 Fazendo requisição para W-API:")
+        print(f"   URL: {url}")
+        print(f"   Payload: {json.dumps(payload, indent=2)}")
+        
+        # Tentar múltiplas vezes
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=30)
+                
+                print(f"📡 Tentativa {attempt + 1}: {response.status_code}")
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if not data.get('error', True):
+                        print(f"✅ Download bem-sucedido:")
+                        print(f"   fileLink: {data.get('fileLink', 'N/A')}")
+                        print(f"   expires: {data.get('expires', 'N/A')}")
+                        return data
+                    else:
+                        print(f"❌ Erro na resposta: {data}")
+                else:
+                    print(f"❌ Status code: {response.status_code}")
+                    print(f"   Resposta: {response.text}")
+                
+                if attempt < max_retries - 1:
+                    print(f"⏳ Aguardando 2 segundos antes da próxima tentativa...")
+                    time.sleep(2)
+                    
+            except requests.exceptions.RequestException as e:
+                print(f"❌ Erro de conexão (tentativa {attempt + 1}): {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(2)
+        
+        print(f"❌ Todas as {max_retries} tentativas falharam")
+        return None
+            
+    except Exception as e:
+        print(f"❌ Erro geral: {e}")
+        return None
+
+def save_media_file(file_link, media_type, message_id, sender_name, cliente, instance):
+    """Salva arquivo de mídia baixado"""
+    try:
+        import requests
+        from pathlib import Path
+        from datetime import datetime
+        
+        # Fazer download do arquivo
+        print(f"📥 Baixando arquivo de: {file_link}")
+        response = requests.get(file_link, timeout=60)
+        
+        if response.status_code != 200:
+            print(f"❌ Erro ao baixar arquivo: {response.status_code}")
+            return None
+        
+        # Determinar extensão baseada no tipo
+        extensions = {
+            'image': '.jpg',
+            'video': '.mp4',
+            'audio': '.mp3',
+            'document': '.pdf',
+            'sticker': '.webp'
+        }
+        
+        ext = extensions.get(media_type, '.bin')
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"wapi_{message_id}_{timestamp}{ext}"
+        
+        # Criar pasta de destino
+        media_storage_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente.id}" / f"instance_{instance.instance_id}" / media_type
+        media_storage_path.mkdir(parents=True, exist_ok=True)
+        
+        # Salvar arquivo
+        file_path = media_storage_path / filename
+        with open(file_path, 'wb') as f:
+            f.write(response.content)
+        
+        print(f"✅ Arquivo salvo: {file_path}")
+        print(f"📏 Tamanho: {len(response.content)} bytes")
+        
+        # Criar registro no banco
+        from core.models import MediaFile
+        from django.utils import timezone
+        
+        # Verificar se já existe um registro com este message_id
+        existing_media = MediaFile.objects.filter(message_id=message_id).first()
+        
+        if existing_media:
+            # Atualizar registro existente
+            existing_media.file_name = filename
+            existing_media.file_path = str(file_path)
+            existing_media.file_size = len(response.content)
+            existing_media.download_status = 'success'
+            existing_media.download_timestamp = timezone.now()
+            existing_media.save()
+            media_file = existing_media
+            print(f"✅ Registro atualizado no banco: {media_file.id}")
+        else:
+            # Criar novo registro
+            media_file = MediaFile.objects.create(
+                cliente=cliente,
+                instance=instance,
+                message_id=message_id,
+                sender_name=sender_name,
+                sender_id=sender_name,  # Usar nome como ID temporário
+                media_type=media_type,
+                mimetype=response.headers.get('content-type', 'application/octet-stream'),
+                file_name=filename,
+                file_path=str(file_path),
+                file_size=len(response.content),
+                download_status='success',
+                download_timestamp=timezone.now(),
+                message_timestamp=timezone.now(),
+                is_group=False,
+                from_me=False
+            )
+            print(f"✅ Registro criado no banco: {media_file.id}")
+        
+        print(f"✅ Registro criado no banco: {media_file.id}")
+        return str(file_path)
+        
+    except Exception as e:
+        print(f"❌ Erro ao salvar arquivo: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 

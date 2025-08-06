@@ -29,12 +29,13 @@ from .serializers import ClienteSerializer
 from rest_framework.permissions import AllowAny
 from rest_framework.decorators import permission_classes
 
-from core.models import Cliente, Departamento, Chat, Mensagem, WebhookEvent, WhatsappInstance
+from core.models import Cliente, Departamento, Chat, Mensagem, WebhookEvent, WhatsappInstance, MediaFile
 from authentication.models import Usuario
 from authentication.serializers import UsuarioRegistroSerializer, UsuarioPerfilSerializer
 from .serializers import (
     ClienteSerializer, DepartamentoSerializer, ChatSerializer,
-    MensagemSerializer, WebhookEventSerializer, WhatsappInstanceSerializer
+    MensagemSerializer, WebhookEventSerializer, WhatsappInstanceSerializer,
+    MediaFileSerializer
 )
 from .permissions import IsAdminOrReadOnly, IsAtendenteOrAdmin, IsClienteOwner, IsClienteOrAdmin, IsColaboradorOnly, IsAdminOrCliente, IsClienteInstanceOwner
 from .wapi_integration import WApiIntegration
@@ -2468,11 +2469,43 @@ def serve_wapi_media(request, media_type, filename):
         if media_type not in allowed_types:
             raise Http404("Tipo de mídia não suportado")
         
-        # Construir caminho do arquivo
+        # Mapear tipos de mídia para pastas
+        media_type_mapping = {
+            'audios': 'audio',
+            'imagens': 'image',
+            'videos': 'video',
+            'documentos': 'document',
+            'stickers': 'sticker'
+        }
+        
+        # Construir caminho do arquivo - tentar múltiplas localizações
         project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-        file_path = os.path.join(project_root, 'wapi', 'midias', media_type, filename)
+        
+        # Mapear tipo de mídia para pasta correta
+        folder_name = media_type_mapping.get(media_type, media_type)
+        
+        # Tentar diferentes caminhos
+        possible_paths = [
+            # Caminho original wapi/midias/
+            os.path.join(project_root, 'wapi', 'midias', media_type, filename),
+            # Caminho migrado media_storage/ com mapeamento correto
+            os.path.join(project_root, 'multichat_system', 'media_storage', 'cliente_2', 'instance_3B6XIW-ZTS923-GEAY6V', folder_name, filename),
+            # Caminho alternativo
+            os.path.join(project_root, 'media_storage', 'cliente_2', 'instance_3B6XIW-ZTS923-GEAY6V', folder_name, filename),
+        ]
+        
+        file_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                file_path = path
+                break
         
         # Verificar se o arquivo existe
+        if not file_path:
+            logger.error(f"Arquivo não encontrado em nenhum caminho: {filename}")
+            logger.error(f"Caminhos tentados: {possible_paths}")
+            raise Http404("Arquivo não encontrado")
+        
         if not os.path.exists(file_path):
             logger.error(f"Arquivo não encontrado: {file_path}")
             raise Http404("Arquivo não encontrado")
@@ -2724,4 +2757,78 @@ def serve_document_message(request, message_id):
         return Response({'error': 'Mensagem não encontrada'}, status=404)
     except Exception as e:
         return Response({'error': str(e)}, status=500)
+
+
+class MediaFileViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet para gerenciar arquivos de mídia.
+    
+    Permite visualizar e gerenciar arquivos de mídia baixados do WhatsApp.
+    """
+    queryset = MediaFile.objects.all()
+    serializer_class = MediaFileSerializer
+    permission_classes = [IsAtendenteOrAdmin]
+    
+    def get_queryset(self):
+        """
+        Filtra mídias baseado no tipo de usuário:
+        - Administradores veem todas as mídias
+        - Clientes veem apenas suas mídias
+        - Colaboradores veem mídias do cliente ao qual estão associados
+        """
+        user = self.request.user
+        
+        if user.is_superuser:
+            return MediaFile.objects.all()
+        elif hasattr(user, 'cliente'):
+            return MediaFile.objects.filter(cliente=user.cliente)
+        elif hasattr(user, 'departamento') and user.departamento:
+            return MediaFile.objects.filter(cliente=user.departamento.cliente)
+        else:
+            return MediaFile.objects.none()
+    
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Retorna estatísticas das mídias"""
+        queryset = self.get_queryset()
+        
+        stats = {
+            'total': queryset.count(),
+            'por_tipo': queryset.values('media_type').annotate(count=Count('id')),
+            'por_status': queryset.values('download_status').annotate(count=Count('id')),
+            'por_cliente': queryset.values('cliente__nome').annotate(count=Count('id')),
+        }
+        
+        return Response(stats)
+    
+    @action(detail=True, methods=['get'])
+    def download(self, request, pk=None):
+        """Endpoint para download direto do arquivo"""
+        media_file = self.get_object()
+        
+        if not media_file.file_path or media_file.download_status != 'success':
+            return Response(
+                {'error': 'Arquivo não disponível para download'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        try:
+            from django.http import FileResponse
+            import os
+            
+            if os.path.exists(media_file.file_path):
+                response = FileResponse(open(media_file.file_path, 'rb'))
+                response['Content-Type'] = media_file.mimetype
+                response['Content-Disposition'] = f'attachment; filename="{media_file.file_name}"'
+                return response
+            else:
+                return Response(
+                    {'error': 'Arquivo não encontrado no servidor'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        except Exception as e:
+            return Response(
+                {'error': f'Erro ao servir arquivo: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 

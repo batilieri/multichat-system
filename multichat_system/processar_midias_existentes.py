@@ -1,225 +1,130 @@
 #!/usr/bin/env python3
 """
-Script para processar mídias existentes no sistema MultiChat
-
-Este script analisa mensagens existentes no banco de dados e processa
-as mídias que ainda não foram baixadas ou processadas.
+Script para processar mídias existentes que falharam no download
 """
 
 import os
 import sys
 import django
 import json
-import logging
+import requests
 from pathlib import Path
+from datetime import datetime
 
 # Configurar Django
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'multichat.settings')
 django.setup()
 
-from core.models import Mensagem, Chat
-from webhook.models import WebhookEvent
-from core.media_manager import MultiChatMediaManager
-from core.django_media_manager import DjangoMediaManager
+from core.models import MediaFile, WhatsappInstance, Mensagem
+from webhook.views import save_media_file
 
-# Configurar logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-def processar_midias_existentes():
-    """
-    Processa mídias existentes no sistema
-    """
-    logger.info("🎵 Iniciando processamento de mídias existentes...")
+def processar_midias_falhadas():
+    """Processa mídias que falharam no download"""
+    print("🔄 Processando mídias falhadas...")
     
-    # Buscar mensagens com mídia que não foram processadas
-    mensagens_com_midia = Mensagem.objects.filter(
-        tipo__in=['audio', 'imagem', 'video', 'sticker', 'documento']
-    ).exclude(
-        conteudo__isnull=True
-    ).exclude(
-        conteudo=''
-    )
+    # Buscar mídias que falharam
+    midias_falhadas = MediaFile.objects.filter(download_status='failed')
     
-    logger.info(f"📊 Encontradas {mensagens_com_midia.count()} mensagens com mídia")
+    if not midias_falhadas.exists():
+        print("✅ Nenhuma mídia falhada encontrada!")
+        return
     
-    # Contadores
-    processadas = 0
-    erros = 0
+    print(f"📊 Encontradas {midias_falhadas.count()} mídias falhadas")
     
-    for mensagem in mensagens_com_midia:
+    for midia in midias_falhadas:
+        print(f"\n📎 Processando mídia {midia.id}: {midia.media_type}")
+        print(f"   Message ID: {midia.message_id}")
+        print(f"   Sender: {midia.sender_name}")
+        
         try:
-            logger.info(f"🔄 Processando mensagem {mensagem.id} (tipo: {mensagem.tipo})")
+            # Tentar baixar novamente
+            resultado = tentar_download_novamente(midia)
             
-            # Tentar extrair dados da mensagem
-            dados_mensagem = extrair_dados_mensagem(mensagem)
-            if not dados_mensagem:
-                logger.warning(f"⚠️ Não foi possível extrair dados da mensagem {mensagem.id}")
-                continue
-            
-            # Processar mídia
-            sucesso = processar_midia_mensagem(mensagem, dados_mensagem)
-            
-            if sucesso:
-                processadas += 1
-                logger.info(f"✅ Mídia processada com sucesso: {mensagem.id}")
+            if resultado:
+                print(f"✅ Mídia {midia.id} reprocessada com sucesso!")
+                midia.download_status = 'success'
+                midia.file_path = resultado
+                midia.download_timestamp = datetime.now()
+                midia.save()
             else:
-                erros += 1
-                logger.error(f"❌ Falha ao processar mídia: {mensagem.id}")
+                print(f"❌ Falha ao reprocessar mídia {midia.id}")
                 
         except Exception as e:
-            erros += 1
-            logger.error(f"❌ Erro ao processar mensagem {mensagem.id}: {e}")
-    
-    logger.info(f"🎯 Processamento concluído: {processadas} processadas, {erros} erros")
+            print(f"❌ Erro ao reprocessar mídia {midia.id}: {e}")
 
-def extrair_dados_mensagem(mensagem):
-    """
-    Extrai dados da mensagem para processamento de mídia
-    """
+def tentar_download_novamente(midia):
+    """Tenta baixar mídia novamente"""
     try:
-        # Tentar extrair conteúdo JSON
-        if mensagem.conteudo:
-            if isinstance(mensagem.conteudo, str):
-                try:
-                    return json.loads(mensagem.conteudo)
-                except json.JSONDecodeError:
-                    # Se não for JSON, criar estrutura básica
-                    return {
-                        'messageId': str(mensagem.id),
-                        'msgContent': {
-                            f'{mensagem.tipo}Message': {
-                                'url': mensagem.media_url or '',
-                                'mimetype': mensagem.media_mimetype or '',
-                                'fileLength': mensagem.media_size or 0
-                            }
-                        }
-                    }
-            else:
-                return mensagem.conteudo
+        # Simular download (substitua por lógica real)
+        file_link = f"https://api.w-api.app/media/test/{midia.message_id}"
         
-        # Se não há conteúdo, tentar extrair do webhook
-        if mensagem.webhook_event:
-            return mensagem.webhook_event.raw_data
-        
-        return None
-        
-    except Exception as e:
-        logger.error(f"❌ Erro ao extrair dados da mensagem {mensagem.id}: {e}")
-        return None
-
-def processar_midia_mensagem(mensagem, dados_mensagem):
-    """
-    Processa mídia de uma mensagem específica
-    """
-    try:
-        # Determinar cliente e instância
-        cliente = mensagem.chat.cliente if mensagem.chat else None
-        if not cliente:
-            logger.warning(f"⚠️ Mensagem {mensagem.id} sem cliente")
-            return False
-        
-        # Buscar instância ativa
-        from core.models import WhatsappInstance
-        instancia = WhatsappInstance.objects.filter(
-            cliente=cliente,
-            ativo=True
-        ).first()
-        
-        if not instancia:
-            logger.warning(f"⚠️ Nenhuma instância ativa encontrada para cliente {cliente.id}")
-            return False
-        
-        # Criar gerenciador de mídias
-        media_manager = MultiChatMediaManager(
-            cliente_id=cliente.id,
-            instance_id=instancia.instance_id,
-            bearer_token=instancia.token
+        resultado = save_media_file(
+            file_link,
+            midia.media_type,
+            midia.message_id,
+            midia.sender_name,
+            midia.cliente,
+            midia.instance
         )
         
-        # Processar mídia
-        media_manager.processar_mensagem_whatsapp(dados_mensagem)
-        
-        return True
+        return resultado
         
     except Exception as e:
-        logger.error(f"❌ Erro ao processar mídia da mensagem {mensagem.id}: {e}")
-        return False
+        print(f"❌ Erro no download: {e}")
+        return None
 
-def verificar_midias_baixadas():
-    """
-    Verifica quais mídias já foram baixadas
-    """
-    logger.info("🔍 Verificando mídias baixadas...")
+def verificar_midias_sem_arquivo():
+    """Verifica mídias que não têm arquivo físico"""
+    print("\n🔍 Verificando mídias sem arquivo físico...")
     
-    # Diretórios onde as mídias podem estar
-    diretorios_midia = [
-        'media/audios',
-        'media/images', 
-        'media/videos',
-        'media/stickers',
-        'media/documents',
-        'wapi/midias/audios',
-        'wapi/midias/images',
-        'wapi/midias/videos',
-        'wapi/midias/stickers',
-        'wapi/midias/documents'
-    ]
+    midias = MediaFile.objects.filter(download_status='success')
     
-    midias_encontradas = []
-    
-    for diretorio in diretorios_midia:
-        if os.path.exists(diretorio):
-            arquivos = os.listdir(diretorio)
-            logger.info(f"📁 {diretorio}: {len(arquivos)} arquivos")
-            midias_encontradas.extend([f"{diretorio}/{arquivo}" for arquivo in arquivos])
-    
-    logger.info(f"📊 Total de mídias encontradas: {len(midias_encontradas)}")
-    return midias_encontradas
+    for midia in midias:
+        if midia.file_path and not os.path.exists(midia.file_path):
+            print(f"❌ Arquivo não existe: {midia.file_path}")
+            print(f"   Mídia ID: {midia.id}")
+            print(f"   Tipo: {midia.media_type}")
+            
+            # Marcar para reprocessamento
+            midia.download_status = 'failed'
+            midia.save()
+            print(f"✅ Marcada para reprocessamento")
 
-def criar_diretorios_midia():
-    """
-    Cria diretórios necessários para armazenar mídias
-    """
-    logger.info("📁 Criando diretórios de mídia...")
+def criar_estrutura_pastas_midias():
+    """Cria estrutura de pastas para mídias"""
+    print("\n📂 Criando estrutura de pastas...")
     
-    diretorios = [
-        'media/audios',
-        'media/images',
-        'media/videos', 
-        'media/stickers',
-        'media/documents',
-        'wapi/midias/audios',
-        'wapi/midias/images',
-        'wapi/midias/videos',
-        'wapi/midias/stickers',
-        'wapi/midias/documents'
-    ]
+    instancias = WhatsappInstance.objects.all()
     
-    for diretorio in diretorios:
-        Path(diretorio).mkdir(parents=True, exist_ok=True)
-        logger.info(f"✅ Diretório criado: {diretorio}")
+    for instancia in instancias:
+        cliente = instancia.cliente
+        base_path = Path(__file__).parent / "media_storage" / f"cliente_{cliente.id}" / f"instance_{instancia.instance_id}"
+        
+        # Criar pastas para cada tipo de mídia
+        tipos_midia = ['image', 'video', 'audio', 'document', 'sticker']
+        
+        for tipo in tipos_midia:
+            tipo_path = base_path / tipo
+            tipo_path.mkdir(parents=True, exist_ok=True)
+            print(f"✅ Pasta {tipo}: {tipo_path}")
 
 def main():
-    """
-    Função principal
-    """
-    logger.info("🚀 Iniciando processamento de mídias do MultiChat")
+    """Função principal"""
+    print("🚀 Processando mídias existentes...")
+    print("=" * 50)
     
-    # Criar diretórios se não existirem
-    criar_diretorios_midia()
+    # Criar estrutura de pastas
+    criar_estrutura_pastas_midias()
     
-    # Verificar mídias já baixadas
-    midias_baixadas = verificar_midias_baixadas()
+    # Verificar mídias sem arquivo
+    verificar_midias_sem_arquivo()
     
-    # Processar mídias existentes
-    processar_midias_existentes()
+    # Processar mídias falhadas
+    processar_midias_falhadas()
     
-    logger.info("✅ Processamento de mídias concluído!")
+    print("\n" + "=" * 50)
+    print("✅ Processamento concluído!")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main() 
