@@ -136,11 +136,22 @@ export const MediaProcessor = ({ message }) => {
     // Prioridade 1: URL da pasta /wapi/midias/
     if (imageMessage.url && imageMessage.url.startsWith('/wapi/midias/')) {
       const filename = imageMessage.url.split('/').pop()
-      url = `http://localhost:8000/api/wapi-media/images/${filename}`
+      url = `http://localhost:8000/api/wapi-media/imagens/${filename}`
     }
     // Prioridade 2: URL direta do JSON
     else if (imageMessage.url) {
       url = imageMessage.url
+    }
+    // Prioridade 3: Tentar construir URL baseada no message_id
+    else if (message.id) {
+      // Tentar diferentes extensões comuns
+      const extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp']
+      for (const ext of extensions) {
+        const testUrl = `http://localhost:8000/api/wapi-media/imagens/${message.id}.${ext}`
+        // Aqui poderíamos fazer uma verificação prévia, mas por enquanto vamos usar a primeira
+        url = testUrl
+        break
+      }
     }
     // Fallback: usar endpoint da API
     else if (message.id) {
@@ -171,6 +182,15 @@ export const MediaProcessor = ({ message }) => {
     else if (videoMessage.url) {
       url = videoMessage.url
     }
+    // Prioridade 3: Tentar construir URL baseada no message_id
+    else if (message.id) {
+      const extensions = ['mp4', 'webm', 'avi']
+      for (const ext of extensions) {
+        const testUrl = `http://localhost:8000/api/wapi-media/videos/${message.id}.${ext}`
+        url = testUrl
+        break
+      }
+    }
     // Fallback: usar endpoint da API
     else if (message.id) {
       url = `http://localhost:8000/api/video/message/${message.id}/`
@@ -200,6 +220,15 @@ export const MediaProcessor = ({ message }) => {
     else if (stickerMessage.url) {
       url = stickerMessage.url
     }
+    // Prioridade 3: Tentar construir URL baseada no message_id
+    else if (message.id) {
+      const extensions = ['webp', 'gif', 'png']
+      for (const ext of extensions) {
+        const testUrl = `http://localhost:8000/api/wapi-media/stickers/${message.id}.${ext}`
+        url = testUrl
+        break
+      }
+    }
     // Fallback: usar endpoint da API
     else if (message.id) {
       url = `http://localhost:8000/api/sticker/message/${message.id}/`
@@ -223,11 +252,20 @@ export const MediaProcessor = ({ message }) => {
     // Prioridade 1: URL da pasta /wapi/midias/
     if (documentMessage.url && documentMessage.url.startsWith('/wapi/midias/')) {
       const filename = documentMessage.url.split('/').pop()
-      url = `http://localhost:8000/api/wapi-media/documents/${filename}`
+      url = `http://localhost:8000/api/wapi-media/documentos/${filename}`
     }
     // Prioridade 2: URL direta do JSON
     else if (documentMessage.url) {
       url = documentMessage.url
+    }
+    // Prioridade 3: Tentar construir URL baseada no message_id
+    else if (message.id) {
+      const extensions = ['pdf', 'doc', 'docx', 'txt']
+      for (const ext of extensions) {
+        const testUrl = `http://localhost:8000/api/wapi-media/documentos/${message.id}.${ext}`
+        url = testUrl
+        break
+      }
     }
     // Fallback: usar endpoint da API
     else if (message.id) {
@@ -477,6 +515,20 @@ const AudioPlayer = ({ message, mediaUrl }) => {
 
 // Componente para exibir imagem
 const ImageDisplay = ({ message, mediaUrl }) => {
+  const [imageError, setImageError] = useState(false)
+  const [imageLoading, setImageLoading] = useState(true)
+
+  const handleImageLoad = () => {
+    setImageLoading(false)
+    setImageError(false)
+  }
+
+  const handleImageError = () => {
+    setImageLoading(false)
+    setImageError(true)
+    console.error('Erro ao carregar imagem:', mediaUrl)
+  }
+
   return (
     <div className="space-y-2">
       {/* Comentário da imagem */}
@@ -496,26 +548,49 @@ const ImageDisplay = ({ message, mediaUrl }) => {
         animate={{ opacity: 1, scale: 1 }}
         className="relative group"
       >
-        <img
-          src={mediaUrl}
-          alt="Imagem"
-          className="rounded-lg max-h-[300px] w-auto object-cover shadow-sm hover:shadow-md transition-shadow duration-200"
-        />
-        <motion.button
-          initial={{ opacity: 0 }}
-          whileHover={{ opacity: 1 }}
-          className="absolute top-2 right-2 p-2 bg-black/80 text-white rounded-full hover:bg-black/90 transition-colors shadow-lg"
-          onClick={() => {
-            if (mediaUrl) {
-              const link = document.createElement('a')
-              link.href = mediaUrl
-              link.download = `image_${message.id || Date.now()}.jpg`
-              link.click()
-            }
-          }}
-        >
-          <Download className="w-4 h-4" />
-        </motion.button>
+        {imageLoading && (
+          <div className="flex items-center justify-center h-48 bg-muted rounded-lg">
+            <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        
+        {imageError ? (
+          <div className="flex items-center justify-center h-48 bg-red-50 border border-red-200 rounded-lg">
+            <div className="text-center">
+              <AlertTriangle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+              <p className="text-sm text-red-600">Erro ao carregar imagem</p>
+              <p className="text-xs text-red-500 mt-1">URL: {mediaUrl}</p>
+            </div>
+          </div>
+        ) : (
+          <img
+            src={mediaUrl}
+            alt="Imagem"
+            className={`rounded-lg max-h-[300px] w-auto object-cover shadow-sm hover:shadow-md transition-shadow duration-200 ${
+              imageLoading ? 'hidden' : ''
+            }`}
+            onLoad={handleImageLoad}
+            onError={handleImageError}
+          />
+        )}
+        
+        {!imageLoading && !imageError && (
+          <motion.button
+            initial={{ opacity: 0 }}
+            whileHover={{ opacity: 1 }}
+            className="absolute top-2 right-2 p-2 bg-black/80 text-white rounded-full hover:bg-black/90 transition-colors shadow-lg"
+            onClick={() => {
+              if (mediaUrl) {
+                const link = document.createElement('a')
+                link.href = mediaUrl
+                link.download = `image_${message.id || Date.now()}.jpg`
+                link.click()
+              }
+            }}
+          >
+            <Download className="w-4 h-4" />
+          </motion.button>
+        )}
       </motion.div>
     </div>
   )
