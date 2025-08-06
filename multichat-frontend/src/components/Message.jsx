@@ -32,6 +32,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { useToast } from "../components/ui/use-toast"
 import { togglePinMessage, toggleFavoriteMessage } from '../data/mock/messages'
 import { getAllChats } from '../data/mock/chats'
+import MediaProcessor from './MediaProcessor'
 
 // Tipos de mensagem suportados
 const MessageType = {
@@ -1242,6 +1243,7 @@ function renderMessageContent(message) {
   console.log('🎯 MessageType.AUDIO:', MessageType.AUDIO);
   console.log('🎯 É áudio?', tipo === MessageType.AUDIO);
 
+  // Se for mensagem de texto, renderizar normalmente
   if (tipo === MessageType.TEXT || tipo === 'texto' || tipo === 'text') {
     return (
       <motion.p 
@@ -1254,175 +1256,26 @@ function renderMessageContent(message) {
     )
   }
 
-  switch (tipo) {
-    case MessageType.IMAGE:
-      return (
-        <div className="space-y-2">
-          {/* Comentário da imagem */}
-          {showContent && (
-            <motion.p 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-sm opacity-90 mb-2"
-            >
-              {message.content}
-            </motion.p>
-          )}
-          
-          {/* Imagem */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="relative group"
-          >
-            <img
-              src={message.mediaUrl || ""}
-              alt="Imagem"
-              className="rounded-lg max-h-[300px] w-auto object-cover shadow-sm hover:shadow-md transition-shadow duration-200"
-            />
-            <motion.button
-              initial={{ opacity: 0 }}
-              whileHover={{ opacity: 1 }}
-              className="absolute top-2 right-2 p-2 bg-black/80 text-white rounded-full hover:bg-black/90 transition-colors shadow-lg"
-            >
-              <Download className="w-4 h-4" />
-            </motion.button>
-          </motion.div>
-        </div>
-      )
-
-    case MessageType.VIDEO:
-      return (
-        <div className="space-y-2">
-          {/* Comentário do vídeo */}
-          {showContent && (
-            <motion.p 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-sm opacity-90 mb-2"
-            >
-              {message.content}
-            </motion.p>
-          )}
-          
-          {/* Vídeo */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="relative group"
-          >
-            <video 
-              controls 
-              className="rounded-lg max-h-[300px] w-auto object-cover shadow-sm hover:shadow-md transition-shadow duration-200"
-            >
-              <source src={message.mediaUrl} type="video/mp4" />
-            </video>
-            <motion.button
-              initial={{ opacity: 0 }}
-              whileHover={{ opacity: 1 }}
-              className="absolute top-2 right-2 p-2 bg-black/80 text-white rounded-full hover:bg-black/90 transition-colors shadow-lg"
-            >
-              <Download className="w-4 h-4" />
-            </motion.button>
-          </motion.div>
-        </div>
-      )
-
-    case MessageType.AUDIO:
-      console.log('🎵 Renderizando AudioPlayer para mensagem:', message.id);
-      return <AudioPlayer message={message} />
-
-    case MessageType.DOCUMENT:
-      return (
-        <div className="space-y-2">
-          {/* Comentário do documento */}
-          {showContent && (
-            <motion.p 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-sm opacity-90 mb-2"
-            >
-              {message.content}
-            </motion.p>
-          )}
-          
-          {/* Documento */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-accent border border-border rounded-lg p-4 hover:bg-accent/80 transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-primary rounded-lg">
-                <MessageCircle className="w-5 h-5 text-primary-foreground" />
-              </div>
-              <div className="flex-1">
-                <p className="font-medium text-foreground">
-                  {message.documentFilename || 'Documento'}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {message.documentMimetype || 'Tipo desconhecido'}
-                </p>
-              </div>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="p-2 hover:bg-background rounded-lg transition-colors"
-                title="Baixar documento"
-                onClick={() => {
-                  if (message.documentUrl) {
-                    const link = document.createElement('a')
-                    link.href = message.documentUrl
-                    link.download = message.documentFilename || 'documento'
-                    link.click()
-                  }
-                }}
-              >
-                <Download className="w-4 h-4 text-foreground/80" />
-              </motion.button>
-            </div>
-          </motion.div>
-        </div>
-      )
-
-    case MessageType.STICKER:
-      return (
-        <div className="space-y-2">
-          {/* Sticker */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="relative group"
-          >
-            <img
-              src={message.mediaUrl || ""}
-              alt="Sticker"
-              className="rounded-lg max-h-[200px] w-auto object-cover shadow-sm hover:shadow-md transition-shadow duration-200"
-            />
-            <motion.button
-              initial={{ opacity: 0 }}
-              whileHover={{ opacity: 1 }}
-              className="absolute top-2 right-2 p-2 bg-black/80 text-white rounded-full hover:bg-black/90 transition-colors shadow-lg"
-            >
-              <Download className="w-4 h-4" />
-            </motion.button>
-          </motion.div>
-        </div>
-      )
-
-    default:
-      // Fallback para mensagens não reconhecidas
-      console.log('⚠️ Tipo de mensagem não reconhecido:', tipo);
-      return (
-        <motion.p 
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="whitespace-pre-wrap leading-relaxed pr-8"
-        >
-          {renderTextWithEmojis(message.conteudo || message.content || '[Mensagem não suportada]')}
-        </motion.p>
-      )
+  // Para todos os outros tipos de mídia, usar o MediaProcessor
+  if (tipo === MessageType.AUDIO || 
+      tipo === MessageType.IMAGE || 
+      tipo === MessageType.VIDEO || 
+      tipo === MessageType.STICKER || 
+      tipo === MessageType.DOCUMENT) {
+    return <MediaProcessor message={message} />
   }
+
+  // Fallback para mensagens não reconhecidas
+  console.log('⚠️ Tipo de mensagem não reconhecido:', tipo);
+  return (
+    <motion.p 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="whitespace-pre-wrap leading-relaxed pr-8"
+    >
+      {renderTextWithEmojis(message.conteudo || message.content || '[Mensagem não suportada]')}
+    </motion.p>
+  )
 }
 
 export { MessageType };

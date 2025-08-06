@@ -72,27 +72,59 @@ def extract_profile_picture_robust(webhook_data):
     import logging
     logger = logging.getLogger(__name__)
     
+    # Verificar se é uma mensagem enviada pelo usuário (fromMe: true)
+    from_me = webhook_data.get('fromMe', False)
+    
     # Lista de possíveis locais onde a foto pode estar
-    extraction_paths = [
-        # Dados do sender
-        ('sender.profilePicture', lambda data: data.get('sender', {}).get('profilePicture')),
-        ('sender.profile_picture', lambda data: data.get('sender', {}).get('profile_picture')),
-        
-        # Dados do chat
-        ('chat.profilePicture', lambda data: data.get('chat', {}).get('profilePicture')),
-        ('chat.profile_picture', lambda data: data.get('chat', {}).get('profile_picture')),
-        
-        # Nível raiz
-        ('root.profilePicture', lambda data: data.get('profilePicture')),
-        ('root.profile_picture', lambda data: data.get('profile_picture')),
-        
-        # Dentro de msgContent (algumas APIs colocam aqui)
-        ('msgContent.profilePicture', lambda data: data.get('msgContent', {}).get('profilePicture')),
-        
-        # Dentro de data (estrutura aninhada)
-        ('data.sender.profilePicture', lambda data: data.get('data', {}).get('sender', {}).get('profilePicture')),
-        ('data.chat.profilePicture', lambda data: data.get('data', {}).get('chat', {}).get('profilePicture')),
-    ]
+    extraction_paths = []
+    
+    if from_me:
+        # Se é mensagem enviada pelo usuário, PRIORIZAR a foto do CHAT (contato/grupo)
+        # e evitar usar a foto do SENDER (usuário)
+        extraction_paths = [
+            # PRIORIDADE 1: Foto do chat (contato/grupo)
+            ('chat.profilePicture', lambda data: data.get('chat', {}).get('profilePicture')),
+            ('chat.profile_picture', lambda data: data.get('chat', {}).get('profile_picture')),
+            
+            # PRIORIDADE 2: Nível raiz (pode ser do chat)
+            ('root.profilePicture', lambda data: data.get('profilePicture')),
+            ('root.profile_picture', lambda data: data.get('profile_picture')),
+            
+            # PRIORIDADE 3: Dentro de msgContent
+            ('msgContent.profilePicture', lambda data: data.get('msgContent', {}).get('profilePicture')),
+            
+            # PRIORIDADE 4: Dentro de data (estrutura aninhada)
+            ('data.chat.profilePicture', lambda data: data.get('data', {}).get('chat', {}).get('profilePicture')),
+            
+            # ÚLTIMA OPÇÃO: Sender (apenas se não houver outras opções)
+            ('sender.profilePicture', lambda data: data.get('sender', {}).get('profilePicture')),
+            ('sender.profile_picture', lambda data: data.get('sender', {}).get('profile_picture')),
+            ('data.sender.profilePicture', lambda data: data.get('data', {}).get('sender', {}).get('profilePicture')),
+        ]
+        logger.info("🔄 Mensagem enviada pelo usuário - priorizando foto do chat/contato")
+    else:
+        # Se é mensagem recebida, usar a lógica normal
+        extraction_paths = [
+            # Dados do sender
+            ('sender.profilePicture', lambda data: data.get('sender', {}).get('profilePicture')),
+            ('sender.profile_picture', lambda data: data.get('sender', {}).get('profile_picture')),
+            
+            # Dados do chat
+            ('chat.profilePicture', lambda data: data.get('chat', {}).get('profilePicture')),
+            ('chat.profile_picture', lambda data: data.get('chat', {}).get('profile_picture')),
+            
+            # Nível raiz
+            ('root.profilePicture', lambda data: data.get('profilePicture')),
+            ('root.profile_picture', lambda data: data.get('profile_picture')),
+            
+            # Dentro de msgContent (algumas APIs colocam aqui)
+            ('msgContent.profilePicture', lambda data: data.get('msgContent', {}).get('profilePicture')),
+            
+            # Dentro de data (estrutura aninhada)
+            ('data.sender.profilePicture', lambda data: data.get('data', {}).get('sender', {}).get('profilePicture')),
+            ('data.chat.profilePicture', lambda data: data.get('data', {}).get('chat', {}).get('profilePicture')),
+        ]
+        logger.info("📥 Mensagem recebida - usando lógica normal")
     
     for path_name, extractor in extraction_paths:
         try:
@@ -991,7 +1023,10 @@ def process_chat_and_sender(event, webhook_data):
         if not chat_id or not sender_id:
             return
         
-        # Extrair foto de perfil de forma robusta
+        # Verificar se é mensagem enviada pelo usuário
+        from_me = webhook_data.get('fromMe', False)
+        
+        # Extrair foto de perfil de forma robusta (já corrigida para priorizar chat quando fromMe=true)
         profile_picture = extract_profile_picture_robust(webhook_data)
         
         # Criar ou atualizar sender
@@ -1046,15 +1081,28 @@ def process_chat_and_sender(event, webhook_data):
                 updated = True
             
             # IMPORTANTE: Sempre atualizar foto se uma nova for fornecida
+            # Mas apenas se não for uma mensagem enviada pelo usuário OU se a foto vier do chat
             if profile_picture and chat.foto_perfil != profile_picture:
-                chat.foto_perfil = profile_picture
-                updated = True
-                logger.info(f"🖼️ Foto de perfil atualizada para chat {chat_id}: {profile_picture}")
+                # Se é mensagem enviada pelo usuário, só atualizar se a foto vier do chat
+                if from_me:
+                    # Verificar se a foto veio do chat (não do sender)
+                    chat_profile_picture = chat_data.get('profilePicture') or webhook_data.get('profilePicture')
+                    if profile_picture == chat_profile_picture:
+                        chat.foto_perfil = profile_picture
+                        updated = True
+                        logger.info(f"🖼️ Foto de perfil do chat atualizada (fromMe=true): {profile_picture}")
+                    else:
+                        logger.info(f"🔄 Ignorando foto do sender para chat (fromMe=true): {profile_picture}")
+                else:
+                    # Se é mensagem recebida, atualizar normalmente
+                    chat.foto_perfil = profile_picture
+                    updated = True
+                    logger.info(f"🖼️ Foto de perfil atualizada para chat {chat_id}: {profile_picture}")
             
             if updated:
                 chat.save()
         
-        logger.info(f"✅ Chat e sender processados: {chat_id} - Foto: {profile_picture}")
+        logger.info(f"✅ Chat e sender processados: {chat_id} - Foto: {profile_picture} - fromMe: {from_me}")
         
     except Exception as e:
         logger.error(f"❌ Erro ao processar chat e sender: {e}")

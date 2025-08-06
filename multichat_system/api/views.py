@@ -53,6 +53,16 @@ import time
 import sys
 import os
 from django.http import FileResponse, Http404
+from django.http import JsonResponse, HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.utils.decorators import method_decorator
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+import json
+import os
+from pathlib import Path
 
 # Adicionar o caminho para o módulo wapi
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'wapi'))
@@ -2354,6 +2364,7 @@ def serve_audio(request, audio_path):
 
 
 @api_view(['GET'])
+@permission_classes([AllowAny])
 def serve_audio_by_message(request, message_id):
     """
     Serve áudio processado pelo ID da mensagem - INTEGRADO COM /wapi/midias/
@@ -2446,6 +2457,7 @@ def serve_audio_by_message(request, message_id):
 
 
 @api_view(['GET'])
+@permission_classes([AllowAny])
 def serve_wapi_media(request, media_type, filename):
     """
     Serve mídias baixadas da pasta /wapi/midias/
@@ -2511,4 +2523,205 @@ def serve_wapi_media(request, media_type, filename):
     except Exception as e:
         logger.error(f"ERRO - Erro ao servir mídia {media_type}/{filename}: {e}")
         return Response({'error': 'Erro ao servir mídia'}, status=500)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def serve_audio_message(request, message_id):
+    """
+    Serve áudio processado de uma mensagem específica
+    """
+    try:
+        from core.models import Mensagem
+        
+        # Buscar mensagem
+        message = Mensagem.objects.get(id=message_id)
+        
+        # Verificar se é uma mensagem de áudio
+        if message.tipo != 'audio':
+            return Response({'error': 'Mensagem não é de áudio'}, status=400)
+        
+        # Tentar diferentes caminhos para o arquivo de áudio
+        audio_paths = [
+            f"media/audios/{message_id}.mp3",
+            f"media/audios/{message_id}.ogg",
+            f"media/audios/{message_id}.m4a",
+            f"wapi/midias/audios/{message_id}.mp3",
+            f"wapi/midias/audios/{message_id}.ogg",
+            f"wapi/midias/audios/{message_id}.m4a"
+        ]
+        
+        for audio_path in audio_paths:
+            if os.path.exists(audio_path):
+                with open(audio_path, 'rb') as audio_file:
+                    response = HttpResponse(audio_file.read(), content_type='audio/mpeg')
+                    response['Content-Disposition'] = f'attachment; filename="audio_{message_id}.mp3"'
+                    return response
+        
+        return Response({'error': 'Arquivo de áudio não encontrado'}, status=404)
+        
+    except Mensagem.DoesNotExist:
+        return Response({'error': 'Mensagem não encontrada'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def serve_image_message(request, message_id):
+    """
+    Serve imagem processada de uma mensagem específica
+    """
+    try:
+        from core.models import Mensagem
+        
+        # Buscar mensagem
+        message = Mensagem.objects.get(id=message_id)
+        
+        # Verificar se é uma mensagem de imagem
+        if message.tipo != 'imagem':
+            return Response({'error': 'Mensagem não é de imagem'}, status=400)
+        
+        # Tentar diferentes caminhos para o arquivo de imagem
+        image_paths = [
+            f"media/images/{message_id}.jpg",
+            f"media/images/{message_id}.png",
+            f"media/images/{message_id}.jpeg",
+            f"wapi/midias/images/{message_id}.jpg",
+            f"wapi/midias/images/{message_id}.png",
+            f"wapi/midias/images/{message_id}.jpeg"
+        ]
+        
+        for image_path in image_paths:
+            if os.path.exists(image_path):
+                with open(image_path, 'rb') as image_file:
+                    response = HttpResponse(image_file.read(), content_type='image/jpeg')
+                    response['Content-Disposition'] = f'attachment; filename="image_{message_id}.jpg"'
+                    return response
+        
+        return Response({'error': 'Arquivo de imagem não encontrado'}, status=404)
+        
+    except Mensagem.DoesNotExist:
+        return Response({'error': 'Mensagem não encontrada'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def serve_video_message(request, message_id):
+    """
+    Serve vídeo processado de uma mensagem específica
+    """
+    try:
+        from core.models import Mensagem
+        
+        # Buscar mensagem
+        message = Mensagem.objects.get(id=message_id)
+        
+        # Verificar se é uma mensagem de vídeo
+        if message.tipo != 'video':
+            return Response({'error': 'Mensagem não é de vídeo'}, status=400)
+        
+        # Tentar diferentes caminhos para o arquivo de vídeo
+        video_paths = [
+            f"media/videos/{message_id}.mp4",
+            f"media/videos/{message_id}.avi",
+            f"media/videos/{message_id}.mov",
+            f"wapi/midias/videos/{message_id}.mp4",
+            f"wapi/midias/videos/{message_id}.avi",
+            f"wapi/midias/videos/{message_id}.mov"
+        ]
+        
+        for video_path in video_paths:
+            if os.path.exists(video_path):
+                with open(video_path, 'rb') as video_file:
+                    response = HttpResponse(video_file.read(), content_type='video/mp4')
+                    response['Content-Disposition'] = f'attachment; filename="video_{message_id}.mp4"'
+                    return response
+        
+        return Response({'error': 'Arquivo de vídeo não encontrado'}, status=404)
+        
+    except Mensagem.DoesNotExist:
+        return Response({'error': 'Mensagem não encontrada'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def serve_sticker_message(request, message_id):
+    """
+    Serve sticker processado de uma mensagem específica
+    """
+    try:
+        from core.models import Mensagem
+        
+        # Buscar mensagem
+        message = Mensagem.objects.get(id=message_id)
+        
+        # Verificar se é uma mensagem de sticker
+        if message.tipo != 'sticker':
+            return Response({'error': 'Mensagem não é de sticker'}, status=400)
+        
+        # Tentar diferentes caminhos para o arquivo de sticker
+        sticker_paths = [
+            f"media/stickers/{message_id}.webp",
+            f"media/stickers/{message_id}.png",
+            f"media/stickers/{message_id}.gif",
+            f"wapi/midias/stickers/{message_id}.webp",
+            f"wapi/midias/stickers/{message_id}.png",
+            f"wapi/midias/stickers/{message_id}.gif"
+        ]
+        
+        for sticker_path in sticker_paths:
+            if os.path.exists(sticker_path):
+                with open(sticker_path, 'rb') as sticker_file:
+                    response = HttpResponse(sticker_file.read(), content_type='image/webp')
+                    response['Content-Disposition'] = f'attachment; filename="sticker_{message_id}.webp"'
+                    return response
+        
+        return Response({'error': 'Arquivo de sticker não encontrado'}, status=404)
+        
+    except Mensagem.DoesNotExist:
+        return Response({'error': 'Mensagem não encontrada'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def serve_document_message(request, message_id):
+    """
+    Serve documento processado de uma mensagem específica
+    """
+    try:
+        from core.models import Mensagem
+        
+        # Buscar mensagem
+        message = Mensagem.objects.get(id=message_id)
+        
+        # Verificar se é uma mensagem de documento
+        if message.tipo != 'documento':
+            return Response({'error': 'Mensagem não é de documento'}, status=400)
+        
+        # Tentar diferentes caminhos para o arquivo de documento
+        document_paths = [
+            f"media/documents/{message_id}.pdf",
+            f"media/documents/{message_id}.doc",
+            f"media/documents/{message_id}.docx",
+            f"wapi/midias/documents/{message_id}.pdf",
+            f"wapi/midias/documents/{message_id}.doc",
+            f"wapi/midias/documents/{message_id}.docx"
+        ]
+        
+        for document_path in document_paths:
+            if os.path.exists(document_path):
+                with open(document_path, 'rb') as document_file:
+                    response = HttpResponse(document_file.read(), content_type='application/pdf')
+                    response['Content-Disposition'] = f'attachment; filename="document_{message_id}.pdf"'
+                    return response
+        
+        return Response({'error': 'Arquivo de documento não encontrado'}, status=404)
+        
+    except Mensagem.DoesNotExist:
+        return Response({'error': 'Mensagem não encontrada'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
 

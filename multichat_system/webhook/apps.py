@@ -11,8 +11,8 @@ class WebhookConfig(AppConfig):
         try:
             # Importar signals para garantir que sejam registrados
             from . import signals
-            print("✅ Signals do webhook carregados com sucesso")
+            print("OK - Signals do webhook carregados com sucesso")
         except ImportError as e:
-            print(f"⚠️ Erro ao carregar signals do webhook: {e}")
+            print(f"AVISO - Erro ao carregar signals do webhook: {e}")
         except Exception as e:
-            print(f"❌ Erro inesperado ao carregar signals: {e}")
+            print(f"ERRO - Erro inesperado ao carregar signals: {e}")

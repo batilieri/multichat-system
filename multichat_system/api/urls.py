@@ -16,7 +16,14 @@ Data: 2025-07-11
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
-from .views import UsuarioViewSet, recuperar_status_whatsapp, WebhookMessageViewSet, test_chats_public, serve_audio, serve_audio_by_message, serve_wapi_media
+from .views import (
+    UsuarioViewSet, recuperar_status_whatsapp, WebhookMessageViewSet, test_chats_public, serve_audio, serve_audio_by_message, serve_wapi_media,
+    serve_audio_message,
+    serve_image_message,
+    serve_video_message,
+    serve_sticker_message,
+    serve_document_message
+)
 
 # Router principal para ViewSets
 router = DefaultRouter()
@@ -51,6 +58,13 @@ urlpatterns = [
     
     # Endpoint para servir mídias baixadas da pasta /wapi/midias/
     path('wapi-media/<str:media_type>/<path:filename>/', views.serve_wapi_media, name='serve_wapi_media'),
+    
+    # Endpoints para servir mídias
+    path('audio/message/<int:message_id>/', serve_audio_message, name='serve_audio_message'),
+    path('image/message/<int:message_id>/', serve_image_message, name='serve_image_message'),
+    path('video/message/<int:message_id>/', serve_video_message, name='serve_video_message'),
+    path('sticker/message/<int:message_id>/', serve_sticker_message, name='serve_sticker_message'),
+    path('document/message/<int:message_id>/', serve_document_message, name='serve_document_message'),
     
     # Endpoints adicionais podem ser adicionados aqui
     # path('custom-endpoint/', views.CustomView.as_view(), name='custom-endpoint'),
