@@ -38,7 +38,7 @@ class MultiChatMediaDownloader:
         self.bearer_token = bearer_token or cliente.wapi_token
         self.base_url = "https://api.w-api.app/v1"
         
-        # Configurar pastas de mídia por cliente
+        # Configurar pastas de mídia por cliente (nova estrutura)
         self._setup_media_folders()
         
         # Contadores
@@ -47,28 +47,89 @@ class MultiChatMediaDownloader:
         
     def _setup_media_folders(self):
         """Configura as pastas de mídia organizadas por cliente"""
-        # Pasta base para mídias
-        media_base = Path(settings.MEDIA_ROOT) / "whatsapp_media"
+        # Pasta base para mídias (usar media_storage como na migração)
+        media_base = Path(__file__).parent.parent / "media_storage"
         media_base.mkdir(exist_ok=True)
         
-        # Pasta específica do cliente
+        # Pasta específica do cliente e instância
         cliente_folder = media_base / f"cliente_{self.cliente.id}"
-        cliente_folder.mkdir(exist_ok=True)
+        instance_folder = cliente_folder / f"instance_{self.instance_id}"
+        instance_folder.mkdir(parents=True, exist_ok=True)
         
-        # Pastas por tipo de mídia
-        self.pastas_midia = {
+        # Nova estrutura: pasta base de chats
+        self.chats_path = instance_folder / "chats"
+        self.chats_path.mkdir(exist_ok=True)
+        
+        # Cache para pastas de chat criadas
+        self._chat_folders_cache = {}
+        
+        # Manter compatibilidade com estrutura antiga
+        self.pastas_midia_legacy = {
             'image': cliente_folder / "imagens",
             'video': cliente_folder / "videos", 
             'audio': cliente_folder / "audios",
             'document': cliente_folder / "documentos",
             'sticker': cliente_folder / "stickers"
         }
-        
-        # Criar todas as pastas
-        for pasta in self.pastas_midia.values():
-            pasta.mkdir(exist_ok=True)
             
         logger.info(f"📁 Pastas de mídia configuradas para cliente {self.cliente.nome}")
+        
+    def get_chat_media_path(self, chat_id: str, media_type: str) -> Path:
+        """Obtém caminho da pasta de mídia para um chat específico"""
+        # Normalizar chat_id
+        chat_id_clean = self._normalize_chat_id(chat_id)
+        
+        # Verificar cache
+        cache_key = f"{chat_id_clean}_{media_type}"
+        if cache_key in self._chat_folders_cache:
+            return self._chat_folders_cache[cache_key]
+            
+        # Criar estrutura de pastas para o chat
+        chat_folder = self.chats_path / chat_id_clean
+        media_folder = chat_folder / media_type
+        media_folder.mkdir(parents=True, exist_ok=True)
+        
+        # Armazenar em cache
+        self._chat_folders_cache[cache_key] = media_folder
+        
+        return media_folder
+        
+    def _normalize_chat_id(self, chat_id: str) -> str:
+        """
+        Normaliza chat_id para uso como nome de pasta
+        Usa a mesma lógica do webhook views.normalize_chat_id
+        """
+        if not chat_id:
+            return "unknown"
+            
+        # Verificar se é um grupo (contém @g.us)
+        if '@g.us' in chat_id:
+            # Para grupos, usar identificador especial
+            numbers_only = re.sub(r'[^\d]', '', chat_id)
+            if len(numbers_only) > 12:
+                return f"group_{numbers_only[-12:]}"  # Últimos 12 dígitos
+            else:
+                clean_id = re.sub(r'[^\w\-]', '_', str(chat_id))
+                return f"group_{clean_id}"
+            
+        # Remover sufixos comuns do WhatsApp
+        chat_id = re.sub(r'@[^.]+\.us$', '', chat_id)  # Remove @c.us, @lid, etc
+        chat_id = re.sub(r'@[^.]+$', '', chat_id)      # Remove outros sufixos
+        
+        # Extrair apenas números
+        numbers_only = re.sub(r'[^\d]', '', chat_id)
+        
+        # Verificar se é um grupo baseado no padrão (números longos que começam com 120363)
+        if len(numbers_only) > 15 and numbers_only.startswith('120363'):
+            return f"group_{numbers_only[-12:]}"  # Últimos 12 dígitos
+            
+        # Validar se é um número de telefone válido (mínimo 10 dígitos)
+        if len(numbers_only) >= 10:
+            return numbers_only
+            
+        # Fallback para chat_id original limpo se não conseguir normalizar
+        clean_id = re.sub(r'[^\w\-]', '_', str(chat_id))
+        return clean_id or "unknown"
         
     def extrair_informacoes_midia(self, msg_content: Dict) -> List[Dict]:
         """Extrai informações de mídia para download"""
@@ -266,12 +327,15 @@ class MultiChatMediaDownloader:
         tipo = info_midia['type']
         message_short = message_id[:8] if message_id else "unknown"
         
-        return f"{timestamp}_{sender_clean}_{tipo}_{message_short}{extensao}"
+        return f"msg_{message_short}_{timestamp}{extensao}"
         
     def descriptografar_e_baixar_midia(self, info_midia: Dict, message_id: str, sender_name: str) -> Optional[str]:
         """Descriptografa e baixa mídia usando a API W-API"""
         if not self.instance_id or not self.bearer_token:
-            logger.warning("⚠️ API não configurada")
+            logger.warning(f"⚠️ API não configurada - Instance ID: {self.instance_id}, Token: {'***' if self.bearer_token else 'None'}")
+            logger.warning(f"   Cliente: {self.cliente.nome} (ID: {self.cliente.id})")
+            logger.warning(f"   wapi_instance_id: {self.cliente.wapi_instance_id}")
+            logger.warning(f"   wapi_token: {'***' if self.cliente.wapi_token else 'None'}")
             return None
             
         # Validar campos obrigatórios para descriptografia
@@ -412,9 +476,12 @@ class MultiChatMediaDownloader:
                         logger.error(f"❌ Tamanho incorreto - Esperado: {tamanho_esperado}, Real: {tamanho_real}")
                         return None
                         
-                # Gerar nome e salvar arquivo
+                # Obter chat_id (deve ser passado como parâmetro)
+                chat_id = getattr(self, '_current_chat_id', 'unknown')
+                
+                # Gerar nome e salvar arquivo na nova estrutura
                 nome_arquivo = self.gerar_nome_arquivo(info_midia, message_id, sender_name)
-                pasta_tipo = self.pastas_midia[info_midia['type']]
+                pasta_tipo = self.get_chat_media_path(chat_id, info_midia['type'])
                 caminho_arquivo = pasta_tipo / nome_arquivo
                 
                 # Salvamento atômico
@@ -479,9 +546,12 @@ class MultiChatMediaDownloader:
                     logger.error(f"❌ Magic numbers inválidos para {info_midia['mimetype']}")
                     return None
                     
-                # Gerar nome e salvar arquivo
+                # Obter chat_id (deve ser passado como parâmetro)  
+                chat_id = getattr(self, '_current_chat_id', 'unknown')
+                
+                # Gerar nome e salvar arquivo na nova estrutura
                 nome_arquivo = self.gerar_nome_arquivo(info_midia, message_id, sender_name)
-                pasta_tipo = self.pastas_midia[info_midia['type']]
+                pasta_tipo = self.get_chat_media_path(chat_id, info_midia['type'])
                 caminho_arquivo = pasta_tipo / nome_arquivo
                 
                 # Salvamento atômico
@@ -520,7 +590,12 @@ class MultiChatMediaDownloader:
             sender_name = sender.get('pushName', 'Sem nome')
             msg_content = message_data.get('msgContent', {})
             
-            logger.info(f"📱 Processando mensagem #{self.contador_mensagens}: {message_id}")
+            # Extrair chat_id e armazenar para uso nos métodos
+            chat_data = message_data.get('chat', {})
+            chat_id = chat_data.get('id', 'unknown')
+            self._current_chat_id = chat_id
+            
+            logger.info(f"📱 Processando mensagem #{self.contador_mensagens}: {message_id} (chat: {self._normalize_chat_id(chat_id)})")
             
             if not msg_content:
                 return False
@@ -695,11 +770,32 @@ def processar_midias_automaticamente(webhook_event: WebhookEvent):
         tem_midia = any(tipo in msg_content for tipo in tipos_midia)
         
         if not tem_midia:
+            logger.debug("📭 Nenhuma mídia encontrada na mensagem")
             return
             
-        # Criar downloader e processar
+        # Extrair chat_id do webhook_event (usar o chat_id já processado)
+        chat_id = webhook_event.chat_id or message_data.get('chat', {}).get('id', 'unknown')
+        
+        logger.info(f"📱 Processando mídia automaticamente - Chat ID: {chat_id}")
+        logger.info(f"   Cliente: {webhook_event.cliente.nome} (ID: {webhook_event.cliente.id})")
+        logger.info(f"   Tipos de mídia encontrados: {[tipo for tipo in tipos_midia if tipo in msg_content]}")
+        
+        # Criar downloader e processar com chat_id
         downloader = MultiChatMediaDownloader(webhook_event.cliente)
-        downloader.processar_mensagem_com_midia(webhook_event, message_data)
+        
+        # Definir chat_id no downloader ANTES do processamento
+        downloader._current_chat_id = chat_id
+        
+        # Log das configurações do downloader
+        logger.info(f"   Instance ID: {downloader.instance_id}")
+        logger.info(f"   Bearer Token: {'Configurado' if downloader.bearer_token else 'NÃO CONFIGURADO'}")
+        
+        resultado = downloader.processar_mensagem_com_midia(webhook_event, message_data)
+        
+        if resultado:
+            logger.info("✅ Processamento de mídia automático concluído com sucesso")
+        else:
+            logger.warning("⚠️ Processamento de mídia automático falhou")
         
     except Exception as e:
         logger.error(f"❌ Erro no processamento automático de mídias: {e}")

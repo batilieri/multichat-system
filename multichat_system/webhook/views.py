@@ -391,6 +391,51 @@ def process_media_automatically(webhook_data, cliente, instance):
         print(f"📎 Mídia detectada: {media_type}")
         print(f"📋 Dados da mídia: {list(detected_media.keys())}")
         
+        # CRIAÇÃO AUTOMÁTICA DE PASTAS DE MÍDIA
+        # Buscar chat baseado no sender_id
+        sender = webhook_data.get('sender', {})
+        sender_id = sender.get('id', '')
+        
+        if sender_id:
+            # Normalizar chat_id
+            chat_id = normalize_chat_id(sender_id)
+            
+            if chat_id:
+                # Buscar ou criar chat
+                chat, created = Chat.objects.get_or_create(
+                    chat_id=chat_id,
+                    cliente=cliente,
+                    defaults={
+                        "status": "active",
+                        "canal": "whatsapp",
+                        "data_inicio": timezone.now(),
+                        "last_message_at": timezone.now()
+                    }
+                )
+                
+                if chat:
+                    # Criar pasta específica para o tipo de mídia
+                    if media_type == 'audio':
+                        pasta_criada = criar_pasta_audio_automatica(chat, instance, message_id)
+                        if pasta_criada:
+                            print(f"🎵 Pasta de áudio criada automaticamente: {pasta_criada}")
+                    elif media_type == 'image':
+                        pasta_criada = criar_pasta_imagem_automatica(chat, instance, message_id)
+                        if pasta_criada:
+                            print(f"🖼️ Pasta de imagem criada automaticamente: {pasta_criada}")
+                    elif media_type == 'video':
+                        pasta_criada = criar_pasta_video_automatica(chat, instance, message_id)
+                        if pasta_criada:
+                            print(f"🎬 Pasta de vídeo criada automaticamente: {pasta_criada}")
+                    elif media_type == 'document':
+                        pasta_criada = criar_pasta_documento_automatica(chat, instance, message_id)
+                        if pasta_criada:
+                            print(f"📄 Pasta de documento criada automaticamente: {pasta_criada}")
+                    elif media_type == 'sticker':
+                        pasta_criada = criar_pasta_sticker_automatica(chat, instance, message_id)
+                        if pasta_criada:
+                            print(f"😀 Pasta de sticker criada automaticamente: {pasta_criada}")
+        
         # Extrair dados necessários para download
         media_key = detected_media.get('mediaKey', '')
         direct_path = detected_media.get('directPath', '')
@@ -399,9 +444,7 @@ def process_media_automatically(webhook_data, cliente, instance):
         caption = detected_media.get('caption', '')
         
         # Dados do remetente
-        sender = webhook_data.get('sender', {})
         sender_name = sender.get('pushName', 'Desconhecido')
-        sender_id = sender.get('id', '')
         
         # Fazer download da mídia
         if media_key and direct_path and mimetype:
@@ -825,6 +868,20 @@ def save_message_to_chat_with_from_me(payload, event, from_me, cliente):
             from_me=from_me,  # Usar o valor já determinado
             message_id=message_id
         )
+        
+        # CRIAÇÃO AUTOMÁTICA DE PASTA PARA ÁUDIOS
+        if message_type == 'audio':
+            # Buscar instância do WhatsApp para este chat
+            instance = chat.cliente.whatsapp_instances.first()
+            if instance:
+                # Criar pasta de áudio automaticamente
+                pasta_criada = criar_pasta_audio_automatica(chat, instance, message_id)
+                if pasta_criada:
+                    logger.info(f"🎵 Pasta de áudio criada automaticamente: {pasta_criada}")
+                else:
+                    logger.warning(f"⚠️ Não foi possível criar pasta de áudio para mensagem {message_id}")
+            else:
+                logger.warning(f"⚠️ Nenhuma instância WhatsApp encontrada para cliente {chat.cliente.nome}")
         
         # Atualizar última mensagem do chat
         chat.last_message_at = datetime.fromtimestamp(payload.get('messageTimestamp', 0))
@@ -1338,5 +1395,130 @@ def save_media_file(file_link, media_type, message_id, sender_name, cliente, ins
         print(f"❌ Erro ao salvar arquivo: {e}")
         import traceback
         traceback.print_exc()
+        return None
+
+def criar_pasta_audio_automatica(chat, instance, message_id):
+    """
+    Cria automaticamente a pasta de áudio para um chat quando uma mensagem de áudio é processada
+    """
+    try:
+        from pathlib import Path
+        
+        # Construir caminho da pasta de áudio
+        cliente_id = chat.cliente.id
+        instance_id = instance.instance_id
+        chat_id = chat.chat_id
+        
+        audio_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / "audio"
+        
+        # Criar pasta se não existir
+        audio_path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"✅ Pasta de áudio criada/verificada: {audio_path}")
+        
+        return str(audio_path)
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao criar pasta de áudio: {e}")
+        return None
+
+def criar_pasta_imagem_automatica(chat, instance, message_id):
+    """
+    Cria automaticamente a pasta de imagem para um chat quando uma mensagem de imagem é processada
+    """
+    try:
+        from pathlib import Path
+        
+        # Construir caminho da pasta de imagem
+        cliente_id = chat.cliente.id
+        instance_id = instance.instance_id
+        chat_id = chat.chat_id
+        
+        image_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / "imagens"
+        
+        # Criar pasta se não existir
+        image_path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"✅ Pasta de imagem criada/verificada: {image_path}")
+        
+        return str(image_path)
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao criar pasta de imagem: {e}")
+        return None
+
+def criar_pasta_video_automatica(chat, instance, message_id):
+    """
+    Cria automaticamente a pasta de vídeo para um chat quando uma mensagem de vídeo é processada
+    """
+    try:
+        from pathlib import Path
+        
+        # Construir caminho da pasta de vídeo
+        cliente_id = chat.cliente.id
+        instance_id = instance.instance_id
+        chat_id = chat.chat_id
+        
+        video_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / "videos"
+        
+        # Criar pasta se não existir
+        video_path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"✅ Pasta de vídeo criada/verificada: {video_path}")
+        
+        return str(video_path)
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao criar pasta de vídeo: {e}")
+        return None
+
+def criar_pasta_documento_automatica(chat, instance, message_id):
+    """
+    Cria automaticamente a pasta de documento para um chat quando uma mensagem de documento é processada
+    """
+    try:
+        from pathlib import Path
+        
+        # Construir caminho da pasta de documento
+        cliente_id = chat.cliente.id
+        instance_id = instance.instance_id
+        chat_id = chat.chat_id
+        
+        documento_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / "documentos"
+        
+        # Criar pasta se não existir
+        documento_path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"✅ Pasta de documento criada/verificada: {documento_path}")
+        
+        return str(documento_path)
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao criar pasta de documento: {e}")
+        return None
+
+def criar_pasta_sticker_automatica(chat, instance, message_id):
+    """
+    Cria automaticamente a pasta de sticker para um chat quando uma mensagem de sticker é processada
+    """
+    try:
+        from pathlib import Path
+        
+        # Construir caminho da pasta de sticker
+        cliente_id = chat.cliente.id
+        instance_id = instance.instance_id
+        chat_id = chat.chat_id
+        
+        sticker_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / "stickers"
+        
+        # Criar pasta se não existir
+        sticker_path.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"✅ Pasta de sticker criada/verificada: {sticker_path}")
+        
+        return str(sticker_path)
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao criar pasta de sticker: {e}")
         return None
 

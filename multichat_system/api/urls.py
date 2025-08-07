@@ -18,11 +18,15 @@ from rest_framework.routers import DefaultRouter
 from . import views
 from .views import (
     UsuarioViewSet, recuperar_status_whatsapp, WebhookMessageViewSet, test_chats_public, serve_audio, serve_audio_by_message, serve_wapi_media,
+    serve_whatsapp_media,
     serve_audio_message,
+    serve_audio_message_public,
+    serve_whatsapp_audio,
     serve_image_message,
     serve_video_message,
     serve_sticker_message,
-    serve_document_message
+    serve_document_message,
+    test_mensagens_public
 )
 
 # Router principal para ViewSets
@@ -51,24 +55,25 @@ urlpatterns = [
     # Endpoint público para teste
     path('test-chats/', test_chats_public, name='test_chats_public'),
     
-    # Endpoint para servir áudios
+    # Endpoints de mídia (públicos)
+    path('wapi-media/<str:media_type>/<str:filename>/', serve_wapi_media, name='serve_wapi_media'),
+    path('whatsapp-media/<int:cliente_id>/<str:instance_id>/<str:chat_id>/<str:media_type>/<str:filename>/', serve_whatsapp_media, name='serve_whatsapp_media'),
+    
+    # Endpoints de áudio (públicos)
     path('audio/<path:audio_path>/', serve_audio, name='serve_audio'),
+    path('audio/message/<int:message_id>/', serve_audio_by_message, name='serve_audio_by_message'),
+    path('audio/message/<int:message_id>/public/', serve_audio_message_public, name='serve_audio_message_public'),
+    path('whatsapp-audio/<int:cliente_id>/<str:instance_id>/<str:chat_id>/<str:filename>/', serve_whatsapp_audio, name='serve_whatsapp_audio'),
     
-    # Endpoint para servir áudio por ID da mensagem
-    path('audio/message/<int:message_id>/', views.serve_audio_by_message, name='serve_audio_by_message'),
-    
-    # Endpoint para servir mídias baixadas da pasta /wapi/midias/
-    path('wapi-media/<str:media_type>/<path:filename>/', views.serve_wapi_media, name='serve_wapi_media'),
-    
-    # Endpoints para servir mídias
+    # Endpoints de mídia (com autenticação)
     path('audio/message/<int:message_id>/', serve_audio_message, name='serve_audio_message'),
     path('image/message/<int:message_id>/', serve_image_message, name='serve_image_message'),
     path('video/message/<int:message_id>/', serve_video_message, name='serve_video_message'),
     path('sticker/message/<int:message_id>/', serve_sticker_message, name='serve_sticker_message'),
     path('document/message/<int:message_id>/', serve_document_message, name='serve_document_message'),
     
-    # Endpoints adicionais podem ser adicionados aqui
-    # path('custom-endpoint/', views.CustomView.as_view(), name='custom-endpoint'),
+    # Endpoint público temporário para teste
+    path('test/mensagens/public/', test_mensagens_public, name='test_mensagens_public'),
 ]
 
 urlpatterns += [

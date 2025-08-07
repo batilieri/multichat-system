@@ -258,12 +258,15 @@ class MensagemSerializer(serializers.ModelSerializer):
     fromMe = serializers.BooleanField(source='from_me', read_only=True)  # Campo para o frontend
     from_me = serializers.BooleanField(read_only=True)  # Campo adicional para compatibilidade
     sender_display_name = serializers.SerializerMethodField()  # Nome do remetente em grupos
+    conteudo = serializers.SerializerMethodField()  # Processar conteúdo de mídia
+    media_url = serializers.SerializerMethodField()  # URL do arquivo local
 
     class Meta:
         model = Mensagem
         fields = [
             "id", "chat", "remetente", "conteudo", "data_envio", "tipo", "lida", "fromMe", "from_me",
-            "sender_display_name", "sender_push_name", "sender_verified_name", "message_id", "reacoes"
+            "sender_display_name", "sender_push_name", "sender_verified_name", "message_id", "reacoes",
+            "media_url"
         ]
         read_only_fields = ["data_envio"]
 
@@ -285,6 +288,111 @@ class MensagemSerializer(serializers.ModelSerializer):
     def get_sender_display_name(self, obj):
         """Retorna o nome de exibição do remetente para grupos"""
         return obj.get_sender_display_name()
+    
+    def get_conteudo(self, obj):
+        """Processa o conteúdo da mensagem, substituindo URLs externas por locais"""
+        import re
+        from pathlib import Path
+        import os
+        
+        conteudo = obj.conteudo
+        
+        # Se é uma mensagem de mídia, tentar encontrar o arquivo local
+        if obj.tipo in ['audio', 'image', 'video', 'document', 'sticker'] and conteudo:
+            # Extrair o message_id do conteúdo se possível
+            message_id = None
+            if obj.message_id:
+                message_id = obj.message_id[:8]  # Primeiros 8 caracteres
+            
+            # Tentar encontrar arquivo local baseado no message_id
+            if message_id:
+                media_path = self._get_local_media_url(obj, message_id)
+                if media_path:
+                    return media_path
+        
+        return conteudo
+    
+    def get_media_url(self, obj):
+        """Retorna a URL do arquivo local de mídia"""
+        if obj.tipo in ['audio', 'image', 'video', 'document', 'sticker'] and obj.message_id:
+            message_id = obj.message_id[:8]
+            return self._get_local_media_url(obj, message_id)
+        return None
+    
+    def _get_local_media_url(self, obj, message_id):
+        """Busca o arquivo local de mídia e retorna a URL"""
+        import os
+        from pathlib import Path
+        import glob
+        
+        try:
+            # Caminho base da instância
+            if not hasattr(obj.chat, 'cliente') or not obj.chat.cliente.whatsapp_instances.first():
+                return None
+                
+            instance = obj.chat.cliente.whatsapp_instances.first()
+            cliente_id = obj.chat.cliente.id
+            instance_id = instance.instance_id
+            chat_id = obj.chat.chat_id
+            
+            # Normalizar tipo de mídia
+            tipo_map = {
+                'audio': 'audio',
+                'image': 'imagens', 
+                'video': 'videos',
+                'document': 'documentos',
+                'sticker': 'stickers'
+            }
+            
+            tipo_pasta = tipo_map.get(obj.tipo, obj.tipo)
+            
+            # Caminho da pasta de mídia - CORRIGIDO
+            base_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / tipo_pasta
+            
+            print(f"🔍 Procurando em: {base_path}")
+            
+            if not base_path.exists():
+                print(f"❌ Pasta não existe: {base_path}")
+                return None
+            
+            # Procurar arquivo que começa com msg_{message_id}
+            pattern = f"msg_{message_id}_*"
+            arquivos = list(base_path.glob(pattern))
+            
+            print(f"🔍 Padrão: {pattern}")
+            print(f"🔍 Arquivos encontrados: {len(arquivos)}")
+            
+            if arquivos:
+                arquivo = arquivos[0]  # Pegar o primeiro arquivo encontrado
+                print(f"✅ Arquivo encontrado: {arquivo.name}")
+                # Retornar URL relativa para o frontend
+                return f"/media/whatsapp_media/cliente_{cliente_id}/instance_{instance_id}/chats/{chat_id}/{tipo_pasta}/{arquivo.name}"
+            else:
+                # Tentar outros padrões
+                outros_padroes = [
+                    f"audio_{message_id}_*",
+                    f"{message_id}_*",
+                    f"msg_*_{message_id}_*",
+                    "*"
+                ]
+                
+                for padrao in outros_padroes:
+                    arquivos = list(base_path.glob(padrao))
+                    if arquivos:
+                        arquivo = arquivos[0]
+                        print(f"✅ Arquivo encontrado com padrão '{padrao}': {arquivo.name}")
+                        return f"/media/whatsapp_media/cliente_{cliente_id}/instance_{instance_id}/chats/{chat_id}/{tipo_pasta}/{arquivo.name}"
+                
+                print(f"❌ Nenhum arquivo encontrado para message_id: {message_id}")
+                return None
+                
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Erro ao buscar URL de mídia local: {e}")
+            print(f"❌ Erro ao buscar mídia: {e}")
+        
+        return None
 
 
 class WebhookEventSerializer(serializers.ModelSerializer):

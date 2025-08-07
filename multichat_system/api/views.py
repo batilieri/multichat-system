@@ -2559,6 +2559,58 @@ def serve_wapi_media(request, media_type, filename):
 
 
 @api_view(['GET'])
+@permission_classes([AllowAny])
+def serve_whatsapp_media(request, cliente_id, instance_id, chat_id, media_type, filename):
+    """
+    Serve mídias da nova estrutura organizada por chat_id
+    """
+    import os
+    import mimetypes
+    from django.http import HttpResponse, Http404
+    
+    try:
+        # Validar tipo de mídia
+        allowed_types = ['audio', 'imagens', 'videos', 'documentos', 'stickers']
+        if media_type not in allowed_types:
+            raise Http404("Tipo de mídia não suportado")
+        
+        # Construir caminho do arquivo
+        base_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),  # multichat_system/
+            'media_storage',
+            f'cliente_{cliente_id}',
+            f'instance_{instance_id}',
+            'chats',
+            str(chat_id),
+            media_type,
+            filename
+        )
+        
+        # Verificar se o arquivo existe
+        if not os.path.exists(base_path):
+            logger.error(f"Arquivo não encontrado: {base_path}")
+            raise Http404("Arquivo não encontrado")
+        
+        # Determinar content-type baseado na extensão
+        content_type, _ = mimetypes.guess_type(filename)
+        if not content_type:
+            content_type = 'application/octet-stream'
+        
+        # Ler e retornar o arquivo
+        with open(base_path, 'rb') as f:
+            response = HttpResponse(f.read(), content_type=content_type)
+        
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+        
+        logger.info(f"✅ Servindo mídia: cliente_{cliente_id}/instance_{instance_id}/chats/{chat_id}/{media_type}/{filename}")
+        return response
+        
+    except Exception as e:
+        logger.error(f"❌ Erro ao servir mídia WhatsApp: {e}")
+        return Response({'error': 'Erro ao servir mídia'}, status=500)
+
+
+@api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def serve_audio_message(request, message_id):
     """
@@ -2831,4 +2883,112 @@ class MediaFileViewSet(viewsets.ModelViewSet):
                 {'error': f'Erro ao servir arquivo: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def serve_audio_message_public(request, message_id):
+    """
+    Serve áudio processado de uma mensagem específica - SEM AUTENTICAÇÃO
+    """
+    try:
+        from core.models import Mensagem
+        
+        # Buscar mensagem
+        message = Mensagem.objects.get(id=message_id)
+        
+        # Verificar se é uma mensagem de áudio
+        if message.tipo != 'audio':
+            return Response({'error': 'Mensagem não é de áudio'}, status=400)
+        
+        # Tentar diferentes caminhos para o arquivo de áudio
+        audio_paths = [
+            f"media/audios/{message_id}.mp3",
+            f"media/audios/{message_id}.ogg",
+            f"media/audios/{message_id}.m4a",
+            f"wapi/midias/audios/{message_id}.mp3",
+            f"wapi/midias/audios/{message_id}.ogg",
+            f"wapi/midias/audios/{message_id}.m4a"
+        ]
+        
+        for audio_path in audio_paths:
+            if os.path.exists(audio_path):
+                with open(audio_path, 'rb') as audio_file:
+                    response = HttpResponse(audio_file.read(), content_type='audio/mpeg')
+                    response['Content-Disposition'] = f'attachment; filename="audio_{message_id}.mp3"'
+                    return response
+        
+        return Response({'error': 'Arquivo de áudio não encontrado'}, status=404)
+        
+    except Mensagem.DoesNotExist:
+        return Response({'error': 'Mensagem não encontrada'}, status=404)
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def serve_whatsapp_audio(request, cliente_id, instance_id, chat_id, filename):
+    """
+    Serve áudio da nova estrutura de armazenamento - SEM AUTENTICAÇÃO
+    """
+    try:
+        from pathlib import Path
+        
+        # Construir caminho do arquivo
+        file_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / "audio" / filename
+        
+        print(f"🔍 Procurando arquivo: {file_path}")
+        
+        if not file_path.exists():
+            print(f"❌ Arquivo não encontrado: {file_path}")
+            return Response({'error': 'Arquivo não encontrado'}, status=404)
+        
+        print(f"✅ Arquivo encontrado: {file_path}")
+        print(f"📏 Tamanho: {file_path.stat().st_size} bytes")
+        
+        # Determinar content-type baseado na extensão
+        content_type = 'audio/ogg'  # Padrão
+        if filename.endswith('.mp3'):
+            content_type = 'audio/mpeg'
+        elif filename.endswith('.m4a'):
+            content_type = 'audio/mp4'
+        elif filename.endswith('.wav'):
+            content_type = 'audio/wav'
+        
+        # Ler e servir o arquivo
+        with open(file_path, 'rb') as f:
+            response = HttpResponse(f.read(), content_type=content_type)
+            response['Content-Disposition'] = f'inline; filename="{filename}"'
+            response['Access-Control-Allow-Origin'] = '*'
+            return response
+            
+    except Exception as e:
+        print(f"❌ Erro ao servir áudio: {e}")
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def test_mensagens_public(request):
+    """
+    Endpoint público temporário para testar mensagens sem autenticação
+    """
+    try:
+        from core.models import Mensagem
+        
+        # Buscar mensagens de áudio
+        mensagens = Mensagem.objects.filter(tipo='audio').order_by('-data_envio')[:5]
+        
+        if not mensagens.exists():
+            return Response({'error': 'Nenhuma mensagem de áudio encontrada'}, status=404)
+        
+        # Serializar mensagens
+        from .serializers import MensagemSerializer
+        serializer = MensagemSerializer(mensagens, many=True)
+        
+        return Response({
+            'mensagens': serializer.data,
+            'total': mensagens.count()
+        })
+        
+    except Exception as e:
+        return Response({'error': str(e)}, status=500)
 

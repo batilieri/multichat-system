@@ -55,8 +55,15 @@ class MultiChatMediaManager:
         self.instance_path = self.cliente_path / f"instance_{instance_id}"
         self.instance_path.mkdir(parents=True, exist_ok=True)
 
-        # Configurar pastas de mídia por tipo
-        self.pastas_midia = {
+        # Configurar pasta base de chats (nova estrutura)
+        self.chats_path = self.instance_path / "chats"
+        self.chats_path.mkdir(exist_ok=True)
+        
+        # Cache para pastas de chat criadas
+        self._chat_folders_cache = {}
+        
+        # Manter compatibilidade com estrutura antiga (para migração)
+        self.pastas_midia_legacy = {
             'image': self.instance_path / "imagens",
             'video': self.instance_path / "videos", 
             'audio': self.instance_path / "audios",
@@ -64,14 +71,57 @@ class MultiChatMediaManager:
             'sticker': self.instance_path / "stickers"
         }
 
-        for pasta in self.pastas_midia.values():
-            pasta.mkdir(exist_ok=True)
-
         # Configurar banco de dados
         self.db_path = self.instance_path / "media_database.db"
         self._init_database()
 
         logger.info(f"✅ MediaManager inicializado para Cliente {cliente_id}, Instância {instance_id}")
+
+    def get_chat_media_path(self, chat_id: str, media_type: str) -> Path:
+        """Obtém caminho da pasta de mídia para um chat específico"""
+        # Normalizar chat_id
+        chat_id_clean = self._normalize_chat_id(chat_id)
+        
+        # Verificar cache
+        cache_key = f"{chat_id_clean}_{media_type}"
+        if cache_key in self._chat_folders_cache:
+            return self._chat_folders_cache[cache_key]
+            
+        # Criar estrutura de pastas para o chat
+        chat_folder = self.chats_path / chat_id_clean
+        media_folder = chat_folder / media_type
+        media_folder.mkdir(parents=True, exist_ok=True)
+        
+        # Armazenar em cache
+        self._chat_folders_cache[cache_key] = media_folder
+        
+        return media_folder
+        
+    def _normalize_chat_id(self, chat_id: str) -> str:
+        """Normaliza chat_id para uso como nome de pasta"""
+        if not chat_id:
+            return "unknown"
+            
+        import re
+        
+        # Remover sufixos do WhatsApp
+        chat_id = re.sub(r'@[^.]+\.us$', '', chat_id)
+        chat_id = re.sub(r'@[^.]+$', '', chat_id)
+        
+        # Extrair apenas números
+        numbers_only = re.sub(r'[^\d]', '', chat_id)
+        
+        # Se é um grupo (padrão 120363), usar identificador especial
+        if len(numbers_only) > 15 and numbers_only.startswith('120363'):
+            return f"group_{numbers_only[-12:]}"  # Últimos 12 dígitos
+            
+        # Se é número válido, usar como está
+        if len(numbers_only) >= 10:
+            return numbers_only
+            
+        # Fallback para chat_id original limpo
+        clean_id = re.sub(r'[^\w\-]', '_', str(chat_id))
+        return clean_id or "unknown"
 
     def _init_database(self):
         """Inicializa o banco de dados SQLite para armazenar informações das mídias"""
@@ -324,22 +374,18 @@ class MultiChatMediaManager:
 
     def gerar_nome_arquivo(self, info_midia: Dict, message_id: str, sender_name: str) -> str:
         """Gera nome único para o arquivo de mídia"""
-        # Limpar nome do remetente
-        sender_clean = "".join(c for c in sender_name if c.isalnum() or c in (' ', '-', '_')).rstrip()
-        sender_clean = sender_clean.replace(' ', '_')
-        
         # Obter extensão
         extensao = self.obter_extensao_mimetype(info_midia['mimetype'])
         
-        # Gerar nome baseado no timestamp e message_id
+        # Novo formato: msg_[message_id]_[timestamp].extensao
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         message_short = message_id[-8:] if len(message_id) > 8 else message_id
         
-        nome_base = f"{timestamp}_{sender_clean}_{message_short}{extensao}"
+        nome_base = f"msg_{message_short}_{timestamp}{extensao}"
         
         return nome_base
 
-    def descriptografar_e_baixar_midia(self, info_midia: Dict, message_id: str, sender_name: str) -> Optional[str]:
+    def descriptografar_e_baixar_midia(self, info_midia: Dict, message_id: str, sender_name: str, chat_id: str = 'unknown') -> Optional[str]:
         """Descriptografa e baixa uma mídia do WhatsApp"""
         try:
             # Verificar se já temos dados necessários
@@ -347,9 +393,9 @@ class MultiChatMediaManager:
                 logger.warning(f"⚠️ Dados de mídia inválidos para {message_id}")
                 return None
 
-            # Gerar nome do arquivo
+            # Gerar nome do arquivo e obter pasta do chat
             nome_arquivo = self.gerar_nome_arquivo(info_midia, message_id, sender_name)
-            pasta_destino = self.pastas_midia[info_midia['type']]
+            pasta_destino = self.get_chat_media_path(chat_id, info_midia['type'])
             caminho_completo = pasta_destino / nome_arquivo
 
             # Verificar se arquivo já existe
@@ -564,7 +610,7 @@ class MultiChatMediaManager:
         """Valida se é um PDF válido"""
         return header.startswith(b'%PDF')
 
-    def processar_mensagem_whatsapp(self, data: Dict):
+    def processar_mensagem_whatsapp(self, data: Dict, chat_id: str = None):
         """Processa uma mensagem do WhatsApp e baixa mídias se necessário"""
         try:
             # Verificar se é uma mensagem válida
@@ -598,11 +644,13 @@ class MultiChatMediaManager:
                 # Salvar no banco primeiro
                 self.salvar_midia_no_banco(message_data, info_midia)
                 
-                # Tentar baixar
+                # Tentar baixar (passar chat_id)
+                extracted_chat_id = chat_id or message_data.get('chat', {}).get('id', 'unknown')
                 file_path = self.descriptografar_e_baixar_midia(
                     info_midia, 
                     message_id, 
-                    message_data.get('sender', {}).get('pushName', 'Desconhecido')
+                    message_data.get('sender', {}).get('pushName', 'Desconhecido'),
+                    extracted_chat_id
                 )
                 
                 # Atualizar status

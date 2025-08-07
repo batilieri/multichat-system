@@ -6,9 +6,11 @@ import {
   Pause,
   Loader2,
   AlertTriangle,
-  MessageCircle
+  MessageCircle,
+  Eye
 } from 'lucide-react'
 import { Slider } from './ui/slider'
+import { ImageModal } from './ImageModal'
 
 // Tipos de mídia suportados
 const MediaType = {
@@ -62,31 +64,65 @@ export const MediaProcessor = ({ message }) => {
       console.log('🎵 Conteúdo processado:', content)
 
       // Detectar tipo de mídia
-      if (content) {
+      
+      // PRIORIDADE 1: Verificar se o backend já processou e definiu o tipo
+      const tipo = message.tipo || message.type;
+      console.log('🎯 Tipo da mensagem:', tipo);
+      
+      if (tipo === 'audio' || tipo === MediaType.AUDIO) {
+        console.log('🎵 Tipo áudio detectado pelo backend')
+        setMediaType(MediaType.AUDIO)
+        processAudioMessage(content?.audioMessage || {})
+      } else if (tipo === 'image' || tipo === 'imagem' || tipo === MediaType.IMAGE) {
+        console.log('🖼️ Tipo imagem detectado pelo backend')
+        setMediaType(MediaType.IMAGE)
+        processImageMessage(content?.imageMessage || {})
+      } else if (tipo === 'video' || tipo === MediaType.VIDEO) {
+        console.log('🎬 Tipo vídeo detectado pelo backend')
+        setMediaType(MediaType.VIDEO)
+        processVideoMessage(content?.videoMessage || {})
+      } else if (tipo === 'sticker' || tipo === MediaType.STICKER) {
+        console.log('😀 Tipo sticker detectado pelo backend')
+        setMediaType(MediaType.STICKER)
+        processStickerMessage(content?.stickerMessage || {})
+      } else if (tipo === 'document' || tipo === 'documento' || tipo === MediaType.DOCUMENT) {
+        console.log('📄 Tipo documento detectado pelo backend')
+        setMediaType(MediaType.DOCUMENT)
+        processDocumentMessage(content?.documentMessage || {})
+      }
+      // PRIORIDADE 2: Detectar pelo conteúdo JSON (método antigo)
+      else if (content) {
         if (content.audioMessage) {
+          console.log('🎵 Tipo áudio detectado pelo conteúdo JSON')
           setMediaType(MediaType.AUDIO)
           processAudioMessage(content.audioMessage)
         } else if (content.imageMessage) {
+          console.log('🖼️ Tipo imagem detectado pelo conteúdo JSON')
           setMediaType(MediaType.IMAGE)
           processImageMessage(content.imageMessage)
         } else if (content.videoMessage) {
+          console.log('🎬 Tipo vídeo detectado pelo conteúdo JSON')
           setMediaType(MediaType.VIDEO)
           processVideoMessage(content.videoMessage)
         } else if (content.stickerMessage) {
+          console.log('😀 Tipo sticker detectado pelo conteúdo JSON')
           setMediaType(MediaType.STICKER)
           processStickerMessage(content.stickerMessage)
         } else if (content.documentMessage) {
+          console.log('📄 Tipo documento detectado pelo conteúdo JSON')
           setMediaType(MediaType.DOCUMENT)
           processDocumentMessage(content.documentMessage)
         } else {
-          // Fallback para mensagem de texto
-          setMediaType(null)
+          console.log('⚠️ Nenhum tipo de mídia detectado no conteúdo JSON')
+          setError('Tipo de mídia não suportado')
           setIsLoading(false)
         }
       } else {
-        setError('Não foi possível processar o conteúdo da mensagem')
+        console.log('⚠️ Nenhum conteúdo encontrado')
+        setError('Conteúdo não encontrado')
         setIsLoading(false)
       }
+
     } catch (error) {
       console.error('❌ Erro ao processar mídia:', error)
       setError('Erro ao processar mídia')
@@ -100,23 +136,64 @@ export const MediaProcessor = ({ message }) => {
     
     let url = null
     
-    // Prioridade 1: URL da pasta /wapi/midias/ (sistema integrado)
-    if (audioMessage.url && audioMessage.url.startsWith('/wapi/midias/')) {
+    // Prioridade 1: URL da nova estrutura de chat_id (backend modificado)
+    if (message.media_url && message.media_url.startsWith('/media/whatsapp_media/')) {
+      url = `http://localhost:8000/api${message.media_url}`
+      console.log('🎵 URL da nova estrutura:', url)
+    }
+    // Prioridade 2: Conteúdo já é a URL local (serializer modificado)
+    else if ((message.conteudo || message.content) && 
+             (typeof (message.conteudo || message.content) === 'string') &&
+             (message.conteudo || message.content).startsWith('/media/whatsapp_media/')) {
+      url = `http://localhost:8000/api${message.conteudo || message.content}`
+      console.log('🎵 URL do conteúdo processado:', url)
+    }
+    // Prioridade 3: Nova estrutura de armazenamento por chat_id
+    else if (message.chat_id && message.sender_id) {
+      // Extrair informações do chat_id (formato: 556999211347)
+      const chatId = message.chat_id
+      const clienteId = 2 // Cliente Elizeu
+      const instanceId = '3B6XIW-ZTS923-GEAY6V'
+      
+      // Tentar diferentes nomes de arquivo baseados no message_id
+      const messageId = message.message_id || message.id
+      const possibleFilenames = [
+        `msg_${messageId}.ogg`,
+        `msg_${messageId}.mp3`,
+        `msg_${messageId}.m4a`,
+        `audio_${messageId}.ogg`,
+        `audio_${messageId}.mp3`,
+        `audio_${messageId}.m4a`
+      ]
+      
+      // Usar o primeiro arquivo que existir (será verificado pelo backend)
+      const filename = possibleFilenames[0]
+      url = `http://localhost:8000/api/whatsapp-audio/${clienteId}/${instanceId}/${chatId}/${filename}`
+      console.log('🎵 URL da nova estrutura por chat_id:', url)
+    }
+    // Prioridade 4: URL da pasta /wapi/midias/ (sistema antigo)
+    else if (audioMessage.url && audioMessage.url.startsWith('/wapi/midias/')) {
       const filename = audioMessage.url.split('/').pop()
       url = `http://localhost:8000/api/wapi-media/audios/${filename}`
+      console.log('🎵 URL /wapi/midias/:', url)
     }
-    // Prioridade 2: Nome do arquivo na pasta /wapi/midias/
+    // Prioridade 5: Nome do arquivo na pasta /wapi/midias/
     else if (audioMessage.fileName) {
       url = `http://localhost:8000/api/wapi-media/audios/${audioMessage.fileName}`
+      console.log('🎵 URL por fileName:', url)
     }
-    // Prioridade 3: URL direta do JSON
+    // Prioridade 6: URL direta do JSON
     else if (audioMessage.url) {
       url = audioMessage.url
+      console.log('🎵 URL direta do JSON:', url)
     }
-    // Fallback: usar endpoint da API para servir áudio pelo ID da mensagem
+    // Fallback: usar endpoint público da API para servir áudio pelo ID da mensagem
     else if (message.id) {
-      url = `http://localhost:8000/api/audio/message/${message.id}/`
+      url = `http://localhost:8000/api/audio/message/${message.id}/public/`
+      console.log('🎵 URL fallback público por ID:', url)
     }
+
+    console.log('🎵 URL final determinada:', url)
 
     if (url) {
       setMediaUrl(url)
@@ -350,6 +427,8 @@ const AudioPlayer = ({ message, mediaUrl }) => {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
+  const [volume, setVolume] = useState(1)
+  const [isMuted, setIsMuted] = useState(false)
   const audioRef = useRef(null)
 
   useEffect(() => {
@@ -365,6 +444,10 @@ const AudioPlayer = ({ message, mediaUrl }) => {
       setIsLoading(false)
       setDuration(audio.duration)
     }
+    const handleError = () => {
+      setIsLoading(false)
+      console.error('Erro ao carregar áudio:', mediaUrl)
+    }
 
     audio.addEventListener('timeupdate', updateTime)
     audio.addEventListener('loadedmetadata', updateDuration)
@@ -372,6 +455,7 @@ const AudioPlayer = ({ message, mediaUrl }) => {
     audio.addEventListener('pause', handlePause)
     audio.addEventListener('ended', handleEnded)
     audio.addEventListener('loadeddata', handleLoadedData)
+    audio.addEventListener('error', handleError)
 
     return () => {
       audio.removeEventListener('timeupdate', updateTime)
@@ -380,15 +464,18 @@ const AudioPlayer = ({ message, mediaUrl }) => {
       audio.removeEventListener('pause', handlePause)
       audio.removeEventListener('ended', handleEnded)
       audio.removeEventListener('loadeddata', handleLoadedData)
+      audio.removeEventListener('error', handleError)
     }
-  }, [])
+  }, [mediaUrl])
 
   const togglePlay = () => {
     if (audioRef.current) {
       if (isPlaying) {
         audioRef.current.pause()
       } else {
-        audioRef.current.play()
+        audioRef.current.play().catch(error => {
+          console.error('Erro ao reproduzir áudio:', error)
+        })
       }
     }
   }
@@ -401,6 +488,26 @@ const AudioPlayer = ({ message, mediaUrl }) => {
     }
   }
 
+  const handleVolumeChange = (value) => {
+    const newVolume = value[0] / 100
+    setVolume(newVolume)
+    if (audioRef.current) {
+      audioRef.current.volume = newVolume
+    }
+  }
+
+  const toggleMute = () => {
+    if (audioRef.current) {
+      if (isMuted) {
+        audioRef.current.volume = volume
+        setIsMuted(false)
+      } else {
+        audioRef.current.volume = 0
+        setIsMuted(true)
+      }
+    }
+  }
+
   const formatTime = (time) => {
     const minutes = Math.floor(time / 60)
     const seconds = Math.floor(time % 60)
@@ -408,6 +515,7 @@ const AudioPlayer = ({ message, mediaUrl }) => {
   }
 
   const sliderValue = duration > 0 ? [(currentTime / duration) * 100] : [0]
+  const volumeValue = [volume * 100]
 
   return (
     <div className="space-y-2">
@@ -421,80 +529,117 @@ const AudioPlayer = ({ message, mediaUrl }) => {
           {message.content}
         </motion.p>
       )}
-      {/* Áudio no estilo do documento */}
+      
+      {/* Player de áudio melhorado */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         className="bg-accent border border-border rounded-lg p-4 hover:bg-accent/80 transition-colors"
       >
-        <div className="flex items-center gap-3">
-          {/* Ícone Play/Loading */}
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={togglePlay}
-            disabled={isLoading}
-            className={`p-2 rounded-lg shadow-sm transition-colors ${
-              isLoading 
-                ? 'bg-muted text-muted-foreground cursor-not-allowed' 
-                : 'bg-primary text-primary-foreground hover:bg-primary/90'
-            }`}
-            title={isLoading ? 'Carregando...' : (isPlaying ? 'Pausar' : 'Reproduzir')}
-          >
-            {isLoading ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : isPlaying ? (
-              <Pause className="w-5 h-5" />
-            ) : (
-              <Play className="w-5 h-5" />
-            )}
-          </motion.button>
-          
-          {/* Informações do áudio */}
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-foreground truncate">
-              {message.filename || 'Áudio'}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {isLoading ? 'Carregando...' : (message.duration || formatTime(duration))}
-            </p>
+        <div className="space-y-3">
+          {/* Controles principais */}
+          <div className="flex items-center gap-3">
+            {/* Botão Play/Pause */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={togglePlay}
+              disabled={isLoading}
+              className={`p-3 rounded-full shadow-sm transition-colors ${
+                isLoading 
+                  ? 'bg-muted text-muted-foreground cursor-not-allowed' 
+                  : 'bg-primary text-primary-foreground hover:bg-primary/90'
+              }`}
+              title={isLoading ? 'Carregando...' : (isPlaying ? 'Pausar' : 'Reproduzir')}
+            >
+              {isLoading ? (
+                <Loader2 className="w-6 h-6 animate-spin" />
+              ) : isPlaying ? (
+                <Pause className="w-6 h-6" />
+              ) : (
+                <Play className="w-6 h-6" />
+              )}
+            </motion.button>
             
-            {/* Slider de progresso */}
-            {!isLoading && (
-              <div className="mt-2">
+            {/* Informações do áudio */}
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-foreground truncate">
+                {message.filename || 'Áudio'}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {isLoading ? 'Carregando...' : (message.duration || formatTime(duration))}
+              </p>
+            </div>
+            
+            {/* Controles de volume */}
+            <div className="flex items-center gap-2">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={toggleMute}
+                className="p-2 hover:bg-background rounded-lg transition-colors"
+                title={isMuted ? 'Ativar som' : 'Silenciar'}
+              >
+                {isMuted ? (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 14.142M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                  </svg>
+                )}
+              </motion.button>
+              
+              <div className="w-20">
                 <Slider
-                  value={sliderValue}
-                  onValueChange={handleSliderChange}
+                  value={volumeValue}
+                  onValueChange={handleVolumeChange}
                   max={100}
-                  step={0.1}
+                  step={1}
                   className="w-full"
                   disabled={isLoading}
                 />
-                <div className="flex justify-between text-xs text-muted-foreground mt-1">
-                  <span>{formatTime(currentTime)}</span>
-                  <span>{formatTime(duration)}</span>
-                </div>
               </div>
-            )}
+            </div>
+            
+            {/* Botão de download */}
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className="p-2 hover:bg-background rounded-lg transition-colors"
+              title="Baixar áudio"
+              onClick={() => {
+                if (mediaUrl) {
+                  const link = document.createElement('a')
+                  link.href = mediaUrl
+                  link.download = `audio_${message.id || Date.now()}.mp3`
+                  link.click()
+                }
+              }}
+            >
+              <Download className="w-4 h-4 text-foreground/80" />
+            </motion.button>
           </div>
           
-          {/* Botão de download */}
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="p-2 hover:bg-background rounded-lg transition-colors"
-            title="Baixar áudio"
-            onClick={() => {
-              if (mediaUrl) {
-                const link = document.createElement('a')
-                link.href = mediaUrl
-                link.download = `audio_${message.id || Date.now()}.mp3`
-                link.click()
-              }
-            }}
-          >
-            <Download className="w-4 h-4 text-foreground/80" />
-          </motion.button>
+          {/* Slider de progresso */}
+          {!isLoading && (
+            <div className="space-y-2">
+              <Slider
+                value={sliderValue}
+                onValueChange={handleSliderChange}
+                max={100}
+                step={0.1}
+                className="w-full"
+                disabled={isLoading}
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{formatTime(currentTime)}</span>
+                <span>{formatTime(duration)}</span>
+              </div>
+            </div>
+          )}
         </div>
         
         {/* Player de áudio oculto para funcionalidade */}
@@ -517,6 +662,7 @@ const AudioPlayer = ({ message, mediaUrl }) => {
 const ImageDisplay = ({ message, mediaUrl }) => {
   const [imageError, setImageError] = useState(false)
   const [imageLoading, setImageLoading] = useState(true)
+  const [isModalOpen, setIsModalOpen] = useState(false)
 
   const handleImageLoad = () => {
     setImageLoading(false)
@@ -563,35 +709,66 @@ const ImageDisplay = ({ message, mediaUrl }) => {
             </div>
           </div>
         ) : (
-          <img
-            src={mediaUrl}
-            alt="Imagem"
-            className={`rounded-lg max-h-[300px] w-auto object-cover shadow-sm hover:shadow-md transition-shadow duration-200 ${
-              imageLoading ? 'hidden' : ''
-            }`}
-            onLoad={handleImageLoad}
-            onError={handleImageError}
-          />
-        )}
-        
-        {!imageLoading && !imageError && (
-          <motion.button
-            initial={{ opacity: 0 }}
-            whileHover={{ opacity: 1 }}
-            className="absolute top-2 right-2 p-2 bg-black/80 text-white rounded-full hover:bg-black/90 transition-colors shadow-lg"
-            onClick={() => {
-              if (mediaUrl) {
-                const link = document.createElement('a')
-                link.href = mediaUrl
-                link.download = `image_${message.id || Date.now()}.jpg`
-                link.click()
-              }
-            }}
-          >
-            <Download className="w-4 h-4" />
-          </motion.button>
+          <div className="relative">
+            <img
+              src={mediaUrl}
+              alt="Imagem"
+              className={`rounded-lg max-h-[300px] w-auto object-cover shadow-sm hover:shadow-md transition-shadow duration-200 cursor-pointer ${
+                imageLoading ? 'hidden' : ''
+              }`}
+              onLoad={handleImageLoad}
+              onError={handleImageError}
+              onClick={() => setIsModalOpen(true)}
+            />
+            
+            {/* Overlay com botões */}
+            {!imageLoading && !imageError && (
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors rounded-lg">
+                <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    className="p-2 bg-black/80 text-white rounded-full hover:bg-black/90 transition-colors shadow-lg"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setIsModalOpen(true)
+                    }}
+                    title="Visualizar imagem"
+                  >
+                    <Eye className="w-4 h-4" />
+                  </motion.button>
+                  
+                  <motion.button
+                    whileHover={{ scale: 1.1 }}
+                    whileTap={{ scale: 0.9 }}
+                    className="p-2 bg-black/80 text-white rounded-full hover:bg-black/90 transition-colors shadow-lg"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      if (mediaUrl) {
+                        const link = document.createElement('a')
+                        link.href = mediaUrl
+                        link.download = `image_${message.id || Date.now()}.jpg`
+                        link.click()
+                      }
+                    }}
+                    title="Baixar imagem"
+                  >
+                    <Download className="w-4 h-4" />
+                  </motion.button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </motion.div>
+      
+      {/* Modal de visualização */}
+      <ImageModal
+        isOpen={isModalOpen}
+        imageUrl={mediaUrl}
+        onClose={() => setIsModalOpen(false)}
+        imageAlt={message.content || "Imagem"}
+      />
     </div>
   )
 }

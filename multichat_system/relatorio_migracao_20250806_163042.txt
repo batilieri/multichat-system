@@ -1,0 +1,23 @@
+Relatório de Migração - Estrutura de Mídias por Chat ID
+============================================================
+
+Data/Hora: 2025-08-06 16:30:42
+
+Estatísticas:
+- Clientes processados: 1
+- Arquivos migrados: 7
+- Arquivos com erro: 0
+- Backup criado em: D:\multiChat\multichat_system\media_storage_backup
+
+Nova estrutura:
+cliente_X/
+└── instance_Y/
+    └── chats/
+        ├── chat_id_1/
+        │   ├── audio/
+        │   ├── document/
+        │   ├── image/
+        │   └── video/
+        └── chat_id_2/
+            ├── audio/
+            └── ...
