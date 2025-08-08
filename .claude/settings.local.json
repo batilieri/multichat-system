@@ -7,7 +7,12 @@
       "Bash(find:*)",
       "Bash(mkdir:*)",
       "Bash(touch:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(rmdir:*)",
+      "Bash(move:*)",
+      "Bash(rm:*)",
+      "Bash(mv:*)",
+      "Bash(ls:*)"
     ],
     "deny": []
   }

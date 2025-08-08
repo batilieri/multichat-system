@@ -33,6 +33,8 @@ export const MediaProcessor = ({ message }) => {
   // Processar dados da mensagem para extrair informações de mídia
   useEffect(() => {
     console.log('🎵 DEBUG MediaProcessor - Dados da mensagem:', message)
+    console.log('🎵 DEBUG MediaProcessor - Tipo:', message.tipo || message.type)
+    console.log('🎵 DEBUG MediaProcessor - Content/Conteudo:', message.content || message.conteudo)
     
     try {
       let content = null
@@ -136,40 +138,55 @@ export const MediaProcessor = ({ message }) => {
     
     let url = null
     
+    // Verificação menos restritiva: sempre tentar processar áudio se temos um audioMessage ou alguma fonte
+    const hasMediaUrl = message.media_url && (message.media_url.startsWith('/media/') || message.media_url.startsWith('/api/'))
+    const hasAudioMessageUrl = audioMessage && audioMessage.url
+    const hasAudioFileName = audioMessage && audioMessage.fileName
+    const hasDirectContent = message.conteudo && typeof message.conteudo === 'string' && (message.conteudo.startsWith('/media/') || message.conteudo.startsWith('/api/'))
+    
+    console.log('🎵 Verificação de fontes de áudio:', {
+      hasMediaUrl,
+      hasAudioMessageUrl,
+      hasAudioFileName,
+      hasDirectContent,
+      hasChatId: !!message.chat_id,
+      hasMessageId: !!message.id,
+      audioMessage
+    })
+    
+    // Se não há nenhuma fonte possível de áudio
+    if (!hasMediaUrl && !hasAudioMessageUrl && !hasAudioFileName && !hasDirectContent && !message.chat_id && !message.id) {
+      console.log('🎵 Nenhuma fonte de áudio válida encontrada')
+      setError('Arquivo de áudio não disponível')
+      setIsLoading(false)
+      return
+    }
+    
     // Prioridade 1: URL da nova estrutura de chat_id (backend modificado)
-    if (message.media_url && message.media_url.startsWith('/media/whatsapp_media/')) {
-      url = `http://localhost:8000/api${message.media_url}`
+    if (message.media_url && (message.media_url.startsWith('/media/whatsapp_media/') || message.media_url.startsWith('/api/whatsapp-media/'))) {
+      url = message.media_url.startsWith('/api/') ? `http://localhost:8000${message.media_url}` : `http://localhost:8000/api${message.media_url}`
       console.log('🎵 URL da nova estrutura:', url)
     }
     // Prioridade 2: Conteúdo já é a URL local (serializer modificado)
     else if ((message.conteudo || message.content) && 
              (typeof (message.conteudo || message.content) === 'string') &&
-             (message.conteudo || message.content).startsWith('/media/whatsapp_media/')) {
-      url = `http://localhost:8000/api${message.conteudo || message.content}`
+             ((message.conteudo || message.content).startsWith('/media/whatsapp_media/') || 
+              (message.conteudo || message.content).startsWith('/api/whatsapp-media/'))) {
+      const contentUrl = message.conteudo || message.content
+      url = contentUrl.startsWith('/api/') ? `http://localhost:8000${contentUrl}` : `http://localhost:8000/api${contentUrl}`
       console.log('🎵 URL do conteúdo processado:', url)
     }
     // Prioridade 3: Nova estrutura de armazenamento por chat_id
-    else if (message.chat_id && message.sender_id) {
-      // Extrair informações do chat_id (formato: 556999211347)
+    else if (message.chat_id) {
+      // Usar endpoint inteligente que detecta o arquivo automaticamente
       const chatId = message.chat_id
       const clienteId = 2 // Cliente Elizeu
       const instanceId = '3B6XIW-ZTS923-GEAY6V'
-      
-      // Tentar diferentes nomes de arquivo baseados no message_id
       const messageId = message.message_id || message.id
-      const possibleFilenames = [
-        `msg_${messageId}.ogg`,
-        `msg_${messageId}.mp3`,
-        `msg_${messageId}.m4a`,
-        `audio_${messageId}.ogg`,
-        `audio_${messageId}.mp3`,
-        `audio_${messageId}.m4a`
-      ]
       
-      // Usar o primeiro arquivo que existir (será verificado pelo backend)
-      const filename = possibleFilenames[0]
-      url = `http://localhost:8000/api/whatsapp-audio/${clienteId}/${instanceId}/${chatId}/${filename}`
-      console.log('🎵 URL da nova estrutura por chat_id:', url)
+      // Usar endpoint que faz auto-detecção do arquivo baseado no message_id
+      url = `http://localhost:8000/api/whatsapp-audio-smart/${clienteId}/${instanceId}/${chatId}/${messageId}`
+      console.log('🎵 URL inteligente por chat_id e message_id:', url)
     }
     // Prioridade 4: URL da pasta /wapi/midias/ (sistema antigo)
     else if (audioMessage.url && audioMessage.url.startsWith('/wapi/midias/')) {
@@ -182,10 +199,22 @@ export const MediaProcessor = ({ message }) => {
       url = `http://localhost:8000/api/wapi-media/audios/${audioMessage.fileName}`
       console.log('🎵 URL por fileName:', url)
     }
-    // Prioridade 6: URL direta do JSON
+    // Prioridade 6: URL direta do WhatsApp (quando arquivo não foi baixado localmente)
+    else if (audioMessage.url && audioMessage.url.startsWith('https://')) {
+      // Para URLs do WhatsApp, tentar usar endpoint público que pode baixar/servir
+      if (message.id) {
+        url = `http://localhost:8000/api/audio/message/${message.id}/public/`
+        console.log('🎵 URL pública por ID para download do WhatsApp:', url)
+      } else {
+        // Como último recurso, usar URL direta (pode não funcionar devido a CORS)
+        url = audioMessage.url
+        console.log('🎵 URL direta do WhatsApp (pode ter problemas de CORS):', url)
+      }
+    }
+    // Prioridade 7: URL direta local
     else if (audioMessage.url) {
       url = audioMessage.url
-      console.log('🎵 URL direta do JSON:', url)
+      console.log('🎵 URL direta local:', url)
     }
     // Fallback: usar endpoint público da API para servir áudio pelo ID da mensagem
     else if (message.id) {
@@ -210,16 +239,30 @@ export const MediaProcessor = ({ message }) => {
     
     let url = null
     
-    // Prioridade 1: URL da pasta /wapi/midias/
-    if (imageMessage.url && imageMessage.url.startsWith('/wapi/midias/')) {
+    // Prioridade 1: URL da nova estrutura de chat_id (backend modificado)
+    if (message.media_url && (message.media_url.startsWith('/media/whatsapp_media/') || message.media_url.startsWith('/api/whatsapp-media/'))) {
+      url = message.media_url.startsWith('/api/') ? `http://localhost:8000${message.media_url}` : `http://localhost:8000/api${message.media_url}`
+      console.log('🖼️ URL da nova estrutura:', url)
+    }
+    // Prioridade 2: Conteúdo já é a URL local (serializer modificado)
+    else if ((message.conteudo || message.content) && 
+             (typeof (message.conteudo || message.content) === 'string') &&
+             ((message.conteudo || message.content).startsWith('/media/whatsapp_media/') || 
+              (message.conteudo || message.content).startsWith('/api/whatsapp-media/'))) {
+      const contentUrl = message.conteudo || message.content
+      url = contentUrl.startsWith('/api/') ? `http://localhost:8000${contentUrl}` : `http://localhost:8000/api${contentUrl}`
+      console.log('🖼️ URL do conteúdo processado:', url)
+    }
+    // Prioridade 3: URL da pasta /wapi/midias/
+    else if (imageMessage.url && imageMessage.url.startsWith('/wapi/midias/')) {
       const filename = imageMessage.url.split('/').pop()
       url = `http://localhost:8000/api/wapi-media/imagens/${filename}`
     }
-    // Prioridade 2: URL direta do JSON
+    // Prioridade 4: URL direta do JSON
     else if (imageMessage.url) {
       url = imageMessage.url
     }
-    // Prioridade 3: Tentar construir URL baseada no message_id
+    // Prioridade 5: Tentar construir URL baseada no message_id
     else if (message.id) {
       // Tentar diferentes extensões comuns
       const extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp']
@@ -365,15 +408,20 @@ export const MediaProcessor = ({ message }) => {
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-accent border border-border rounded-lg p-4"
+          className="bg-accent/50 border border-border rounded-lg p-3"
         >
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-red-500 rounded-lg text-white">
-              <AlertTriangle className="w-5 h-5" />
+          <div className="flex items-center gap-2">
+            <div className="p-1 bg-orange-500 rounded text-white">
+              <AlertTriangle className="w-4 h-4" />
             </div>
             <div className="flex-1">
-              <p className="font-medium text-foreground">Mídia não disponível</p>
-              <p className="text-xs text-muted-foreground">{error}</p>
+              <p className="text-sm text-foreground opacity-80">
+                {message.tipo === 'audio' ? '[Áudio não disponível]' :
+                 message.tipo === 'image' || message.tipo === 'imagem' ? '[Imagem não disponível]' :
+                 message.tipo === 'video' ? '[Vídeo não disponível]' :
+                 message.tipo === 'document' || message.tipo === 'documento' ? '[Documento não disponível]' :
+                 '[Mídia não disponível]'}
+              </p>
             </div>
           </div>
         </motion.div>
@@ -429,7 +477,30 @@ const AudioPlayer = ({ message, mediaUrl }) => {
   const [isLoading, setIsLoading] = useState(true)
   const [volume, setVolume] = useState(1)
   const [isMuted, setIsMuted] = useState(false)
+  const [audioError, setAudioError] = useState(false)
   const audioRef = useRef(null)
+  
+  // Extrair informações do audioMessage se disponível
+  const getAudioInfo = () => {
+    try {
+      const content = message.content || message.conteudo
+      if (typeof content === 'string' && content.startsWith('{')) {
+        const parsed = JSON.parse(content)
+        if (parsed.audioMessage) {
+          return {
+            seconds: parsed.audioMessage.seconds || 0,
+            waveform: parsed.audioMessage.waveform,
+            fileSize: parsed.audioMessage.fileLength
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore parsing errors
+    }
+    return null
+  }
+  
+  const audioInfo = getAudioInfo()
 
   useEffect(() => {
     const audio = audioRef.current
@@ -446,6 +517,7 @@ const AudioPlayer = ({ message, mediaUrl }) => {
     }
     const handleError = () => {
       setIsLoading(false)
+      setAudioError(true)
       console.error('Erro ao carregar áudio:', mediaUrl)
     }
 
@@ -544,16 +616,24 @@ const AudioPlayer = ({ message, mediaUrl }) => {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={togglePlay}
-              disabled={isLoading}
+              disabled={isLoading || audioError}
               className={`p-3 rounded-full shadow-sm transition-colors ${
                 isLoading 
-                  ? 'bg-muted text-muted-foreground cursor-not-allowed' 
+                  ? 'bg-muted text-muted-foreground cursor-not-allowed'
+                  : audioError
+                  ? 'bg-red-500/20 text-red-500 cursor-not-allowed'
                   : 'bg-primary text-primary-foreground hover:bg-primary/90'
               }`}
-              title={isLoading ? 'Carregando...' : (isPlaying ? 'Pausar' : 'Reproduzir')}
+              title={
+                isLoading ? 'Carregando...' : 
+                audioError ? 'Áudio não disponível' :
+                (isPlaying ? 'Pausar' : 'Reproduzir')
+              }
             >
               {isLoading ? (
                 <Loader2 className="w-6 h-6 animate-spin" />
+              ) : audioError ? (
+                <AlertTriangle className="w-6 h-6" />
               ) : isPlaying ? (
                 <Pause className="w-6 h-6" />
               ) : (
@@ -567,8 +647,15 @@ const AudioPlayer = ({ message, mediaUrl }) => {
                 {message.filename || 'Áudio'}
               </p>
               <p className="text-xs text-muted-foreground">
-                {isLoading ? 'Carregando...' : (message.duration || formatTime(duration))}
+                {isLoading ? 'Carregando...' : 
+                 audioError ? (audioInfo ? `${formatTime(audioInfo.seconds)} - Arquivo não disponível` : 'Arquivo não disponível') :
+                 (message.duration || (audioInfo ? formatTime(audioInfo.seconds) : formatTime(duration)))}
               </p>
+              {audioInfo && audioInfo.fileSize && (
+                <p className="text-xs text-muted-foreground opacity-70">
+                  {Math.round(audioInfo.fileSize / 1024)}KB
+                </p>
+              )}
             </div>
             
             {/* Controles de volume */}

@@ -964,8 +964,20 @@ const AudioPlayer = ({ message }) => {
     console.log('🎵 DEBUG AudioPlayer - Dados da mensagem:', message);
     let url = null
     
-    // Prioridade 1: URL da pasta /wapi/midias/ (sistema integrado)
-    if (message.content || message.conteudo) {
+    // Prioridade 1: Nova estrutura de armazenamento por chat_id
+    if (message.chat_id) {
+      // Usar endpoint inteligente que detecta o arquivo automaticamente
+      const chatId = message.chat_id
+      const clienteId = 2 // Cliente Elizeu
+      const instanceId = '3B6XIW-ZTS923-GEAY6V'
+      const messageId = message.message_id || message.id
+      
+      // Usar endpoint que faz auto-detecção do arquivo baseado no message_id
+      url = `http://localhost:8000/api/whatsapp-audio-smart/${clienteId}/${instanceId}/${chatId}/${messageId}/`
+      console.log('🎵 URL inteligente por chat_id e message_id:', url);
+    }
+    // Prioridade 2: URL da pasta /wapi/midias/ (sistema integrado)
+    else if (message.content || message.conteudo) {
       try {
         const content = message.content || message.conteudo
         let jsonContent
@@ -979,18 +991,18 @@ const AudioPlayer = ({ message }) => {
         if (jsonContent.audioMessage) {
           const audioMessage = jsonContent.audioMessage
           
-          // Prioridade 1a: URL da pasta /wapi/midias/audios/
+          // Prioridade 2a: URL da pasta /wapi/midias/
           if (audioMessage.url && audioMessage.url.startsWith('/wapi/midias/')) {
             const filename = audioMessage.url.split('/').pop()
             url = `http://localhost:8000/api/wapi-media/audios/${filename}`
             console.log('🎵 URL /wapi/midias/:', url);
           }
-          // Prioridade 1b: Nome do arquivo na pasta /wapi/midias/
+          // Prioridade 2b: Nome do arquivo na pasta /wapi/midias/
           else if (audioMessage.fileName) {
             url = `http://localhost:8000/api/wapi-media/audios/${audioMessage.fileName}`
             console.log('🎵 URL por fileName:', url);
           }
-          // Prioridade 1c: URL direta do JSON
+          // Prioridade 2c: URL direta do JSON
           else if (audioMessage.url) {
             url = audioMessage.url
             console.log('🎵 URL direta do JSON:', url);
@@ -1001,28 +1013,28 @@ const AudioPlayer = ({ message }) => {
       }
     }
     
-    // Prioridade 2: URL processada do backend (/media/)
+    // Prioridade 3: URL processada do backend (/media/)
     if (!url && message.mediaUrl && message.mediaUrl.startsWith('/media/')) {
-      url = `http://localhost:8000${message.mediaUrl}`
+      url = `http://localhost:8000/api${message.mediaUrl}`
       console.log('🎵 URL processada do backend:', url);
     }
     
-    // Prioridade 3: URL processada como caminho relativo
+    // Prioridade 4: URL processada como caminho relativo
     if (!url && message.mediaUrl && message.mediaUrl.startsWith('audios/')) {
-      url = `http://localhost:8000/media/${message.mediaUrl}`
+      url = `http://localhost:8000/api/media/${message.mediaUrl}`
       console.log('🎵 URL relativa:', url);
     }
     
-    // Prioridade 4: URL direta do WhatsApp (ainda criptografada)
+    // Prioridade 5: URL direta do WhatsApp (ainda criptografada)
     if (!url && message.mediaUrl && message.mediaUrl.startsWith('http')) {
       url = message.mediaUrl
       console.log('🎵 URL direta do WhatsApp:', url);
     }
     
-    // Fallback: usar endpoint da API para servir áudio pelo ID da mensagem
+    // Fallback: usar endpoint público da API para servir áudio pelo ID da mensagem
     if (!url && message.id) {
-      url = `http://localhost:8000/api/audio/message/${message.id}/`
-      console.log('🎵 URL fallback por ID:', url);
+      url = `http://localhost:8000/api/audio/message/${message.id}/public/`
+      console.log('🎵 URL fallback público por ID:', url);
     }
     
     console.log('🎵 URL final do áudio:', url);
@@ -1242,6 +1254,9 @@ function renderMessageContent(message) {
   console.log('🎯 Tipo detectado:', tipo);
   console.log('🎯 MessageType.AUDIO:', MessageType.AUDIO);
   console.log('🎯 É áudio?', tipo === MessageType.AUDIO);
+  console.log('🎯 Comparação exata:', tipo === 'audio');
+  console.log('🎯 Tipo do tipo:', typeof tipo);
+  console.log('🎯 Tipo do MessageType.AUDIO:', typeof MessageType.AUDIO);
 
   // Se for mensagem de texto, renderizar normalmente
   if (tipo === MessageType.TEXT || tipo === 'texto' || tipo === 'text') {
@@ -1261,7 +1276,75 @@ function renderMessageContent(message) {
       tipo === MessageType.IMAGE || 
       tipo === MessageType.VIDEO || 
       tipo === MessageType.STICKER || 
-      tipo === MessageType.DOCUMENT) {
+      tipo === MessageType.DOCUMENT ||
+      tipo === 'audio' ||  // Adicionar comparação direta
+      tipo === 'imagem' ||
+      tipo === 'video' ||
+      tipo === 'sticker' ||
+      tipo === 'documento') {
+    
+    // Verificação rápida: se claramente não há mídia, mostrar placeholder
+    const hasMediaUrl = message.media_url && (message.media_url.startsWith('/media/') || message.media_url.startsWith('/api/'))
+    const hasMediaContent = message.conteudo && typeof message.conteudo === 'string' && (message.conteudo.startsWith('/media/') || message.conteudo.startsWith('/api/'))
+    
+    // Verificar se há JSON com audioMessage, imageMessage, etc.
+    let hasJsonContent = false
+    try {
+      const content = message.content || message.conteudo
+      // Debug apenas para novas mensagens de áudio
+      if (tipo === 'audio' && message.id > 910) {
+        console.log('🔍 DEBUG Message.jsx - Nova mensagem áudio:', {
+          messageId: message.id,
+          tipo,
+          hasContent: !!content,
+          contentType: typeof content,
+          hasMediaUrl,
+          hasMediaContent
+        })
+      }
+      
+      if (typeof content === 'object') {
+        hasJsonContent = content.audioMessage || content.imageMessage || content.videoMessage || content.documentMessage || content.stickerMessage
+      } else if (typeof content === 'string' && (content.startsWith('{') || content.includes('Message'))) {
+        const parsedContent = JSON.parse(content)
+        hasJsonContent = parsedContent.audioMessage || parsedContent.imageMessage || parsedContent.videoMessage || parsedContent.documentMessage || parsedContent.stickerMessage
+        // Debug apenas para novas mensagens
+        if (tipo === 'audio' && message.id > 910) {
+          console.log('🔍 DEBUG - JSON parseado:', { parsedContent, hasJsonContent })
+        }
+      }
+    } catch (e) {
+      console.log('🔍 DEBUG - Erro ao parsear JSON:', e)
+    }
+    
+    // Para áudio, sempre tentar processar se não houver evidência clara de mídia
+    // A verificação prévia pode estar sendo muito restritiva
+    if (!hasMediaUrl && !hasMediaContent && !hasJsonContent && tipo !== 'audio') {
+      // Mostrar placeholder simples sem processamento apenas para outros tipos
+      const mediaTypeLabel = {
+        'image': '[Imagem]', 
+        'imagem': '[Imagem]',
+        'video': '[Vídeo]',
+        'sticker': '[Sticker]',
+        'document': '[Documento]',
+        'documento': '[Documento]'
+      }[tipo] || '[Mídia]'
+      
+      return (
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-accent/30 border border-border rounded-lg p-2"
+        >
+          <p className="text-sm text-foreground opacity-60">{mediaTypeLabel}</p>
+        </motion.div>
+      )
+    }
+    
+    // Debug apenas para novas mensagens
+    if (message.id > 910) {
+      console.log('🎵 Usando MediaProcessor para tipo:', tipo);
+    }
     return <MediaProcessor message={message} />
   }
 

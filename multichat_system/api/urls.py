@@ -22,6 +22,7 @@ from .views import (
     serve_audio_message,
     serve_audio_message_public,
     serve_whatsapp_audio,
+    serve_whatsapp_audio_smart,
     serve_image_message,
     serve_video_message,
     serve_sticker_message,
@@ -64,6 +65,7 @@ urlpatterns = [
     path('audio/message/<int:message_id>/', serve_audio_by_message, name='serve_audio_by_message'),
     path('audio/message/<int:message_id>/public/', serve_audio_message_public, name='serve_audio_message_public'),
     path('whatsapp-audio/<int:cliente_id>/<str:instance_id>/<str:chat_id>/<str:filename>/', serve_whatsapp_audio, name='serve_whatsapp_audio'),
+    path('whatsapp-audio-smart/<int:cliente_id>/<str:instance_id>/<str:chat_id>/<str:message_id>/', serve_whatsapp_audio_smart, name='serve_whatsapp_audio_smart'),
     
     # Endpoints de mídia (com autenticação)
     path('audio/message/<int:message_id>/', serve_audio_message, name='serve_audio_message'),

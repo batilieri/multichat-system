@@ -2900,7 +2900,60 @@ def serve_audio_message_public(request, message_id):
         if message.tipo != 'audio':
             return Response({'error': 'Mensagem não é de áudio'}, status=400)
         
-        # Tentar diferentes caminhos para o arquivo de áudio
+        # Primeiro, tentar buscar na nova estrutura usando o mesmo método do serializer
+        from pathlib import Path
+        import glob
+        
+        # Tentar encontrar o arquivo na nova estrutura
+        if hasattr(message.chat, 'cliente') and message.chat.cliente.whatsapp_instances.first():
+            instance = message.chat.cliente.whatsapp_instances.first()
+            cliente_id = message.chat.cliente.id
+            instance_id = instance.instance_id
+            chat_id = message.chat.chat_id
+            
+            base_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / "audio"
+            
+            if base_path.exists():
+                # Usar os mesmos padrões de busca do serializer
+                search_patterns = [
+                    f"msg_{message.message_id[:8]}_*.ogg",
+                    f"msg_{message.message_id[:8]}_*.*",
+                    f"msg_{message.message_id}.*",
+                    f"msg_{message.message_id}_*.*",
+                    f"*{message.message_id[:8]}*.*",
+                    f"*{message.message_id}*.*"
+                ]
+                
+                for pattern in search_patterns:
+                    arquivos = list(base_path.glob(pattern))
+                    if arquivos:
+                        found_file = arquivos[0]
+                        content_type = 'audio/ogg' if found_file.suffix == '.ogg' else 'audio/mpeg'
+                        
+                        with open(found_file, 'rb') as audio_file:
+                            response = HttpResponse(audio_file.read(), content_type=content_type)
+                            response['Content-Disposition'] = f'inline; filename="{found_file.name}"'
+                            response['Access-Control-Allow-Origin'] = '*'
+                            return response
+        
+        # Se não encontrou arquivo local, tentar extrair URL do WhatsApp do conteúdo JSON
+        import json
+        try:
+            if message.conteudo and isinstance(message.conteudo, str) and message.conteudo.startswith('{'):
+                parsed_content = json.loads(message.conteudo)
+                if 'audioMessage' in parsed_content and 'url' in parsed_content['audioMessage']:
+                    whatsapp_url = parsed_content['audioMessage']['url']
+                    # Aqui você poderia implementar download do áudio do WhatsApp se necessário
+                    # Por enquanto, retornar erro informativo
+                    return Response({
+                        'error': 'Arquivo não baixado localmente',
+                        'whatsapp_url': whatsapp_url,
+                        'message': 'O áudio está disponível no WhatsApp mas não foi baixado para o servidor'
+                    }, status=404)
+        except (json.JSONDecodeError, KeyError):
+            pass
+        
+        # Tentar caminhos legados
         audio_paths = [
             f"media/audios/{message_id}.mp3",
             f"media/audios/{message_id}.ogg",
@@ -2917,7 +2970,7 @@ def serve_audio_message_public(request, message_id):
                     response['Content-Disposition'] = f'attachment; filename="audio_{message_id}.mp3"'
                     return response
         
-        return Response({'error': 'Arquivo de áudio não encontrado'}, status=404)
+        return Response({'error': 'Arquivo de áudio não encontrado em nenhum local'}, status=404)
         
     except Mensagem.DoesNotExist:
         return Response({'error': 'Mensagem não encontrada'}, status=404)
@@ -2963,6 +3016,82 @@ def serve_whatsapp_audio(request, cliente_id, instance_id, chat_id, filename):
             
     except Exception as e:
         print(f"❌ Erro ao servir áudio: {e}")
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def serve_whatsapp_audio_smart(request, cliente_id, instance_id, chat_id, message_id):
+    """
+    Serve áudio da nova estrutura com auto-detecção de arquivo - SEM AUTENTICAÇÃO
+    Detecta automaticamente o arquivo baseado no message_id usando diferentes padrões
+    """
+    try:
+        from pathlib import Path
+        import glob
+        
+        # Construir caminho base do diretório de áudio
+        base_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / "audio"
+        
+        print(f"🔍 Buscando áudio inteligente para message_id: {message_id}")
+        print(f"🔍 Caminho base: {base_path}")
+        
+        if not base_path.exists():
+            print(f"❌ Diretório não encontrado: {base_path}")
+            return Response({'error': 'Diretório de áudio não encontrado'}, status=404)
+        
+        # Padrões de busca baseados no message_id
+        search_patterns = [
+            # Padrão 1: msg_<8_chars>_<timestamp>.ogg
+            f"msg_{message_id[:8]}_*.ogg",
+            # Padrão 2: msg_<8_chars>_<timestamp>.*
+            f"msg_{message_id[:8]}_*.*",
+            # Padrão 3: msg_<message_id_completo>.*
+            f"msg_{message_id}.*",
+            # Padrão 4: *<message_id>*.*
+            f"*{message_id[:8]}*.*",
+            # Padrão 5: *<timestamp>*.* (para arquivos com timestamp)
+            f"*{message_id[-8:]}*.*",
+        ]
+        
+        found_file = None
+        for pattern in search_patterns:
+            search_path = base_path / pattern
+            print(f"🔍 Buscando padrão: {search_path}")
+            
+            # Usar glob para buscar arquivos que correspondem ao padrão
+            matches = list(base_path.glob(pattern))
+            if matches:
+                found_file = matches[0]  # Pegar o primeiro arquivo encontrado
+                print(f"✅ Arquivo encontrado com padrão '{pattern}': {found_file.name}")
+                break
+        
+        if not found_file or not found_file.exists():
+            print(f"❌ Nenhum arquivo encontrado para message_id: {message_id}")
+            print(f"❌ Padrões tentados: {search_patterns}")
+            return Response({'error': 'Arquivo não encontrado'}, status=404)
+        
+        print(f"✅ Arquivo final encontrado: {found_file}")
+        print(f"📏 Tamanho: {found_file.stat().st_size} bytes")
+        
+        # Determinar content-type baseado na extensão
+        content_type = 'audio/ogg'  # Padrão
+        filename = found_file.name
+        if filename.endswith('.mp3'):
+            content_type = 'audio/mpeg'
+        elif filename.endswith('.m4a'):
+            content_type = 'audio/mp4'
+        elif filename.endswith('.wav'):
+            content_type = 'audio/wav'
+        
+        # Ler e servir o arquivo
+        with open(found_file, 'rb') as f:
+            response = HttpResponse(f.read(), content_type=content_type)
+            response['Content-Disposition'] = f'inline; filename="{filename}"'
+            response['Access-Control-Allow-Origin'] = '*'
+            return response
+            
+    except Exception as e:
+        print(f"❌ Erro ao servir áudio inteligente: {e}")
         return Response({'error': str(e)}, status=500)
 
 @api_view(['GET'])

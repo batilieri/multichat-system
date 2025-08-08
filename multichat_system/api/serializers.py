@@ -313,10 +313,43 @@ class MensagemSerializer(serializers.ModelSerializer):
         return conteudo
     
     def get_media_url(self, obj):
-        """Retorna a URL do arquivo local de mídia"""
+        """Retorna a URL do arquivo local de mídia ou alternativa quando há conteúdo de mídia"""
         if obj.tipo in ['audio', 'image', 'video', 'document', 'sticker'] and obj.message_id:
             message_id = obj.message_id[:8]
-            return self._get_local_media_url(obj, message_id)
+            local_url = self._get_local_media_url(obj, message_id)
+            
+            # Se encontrou arquivo local, retornar
+            if local_url:
+                return local_url
+            
+            # Se não encontrou arquivo local, verificar se há conteúdo de mídia no JSON
+            try:
+                import json
+                content = obj.conteudo
+                if content and isinstance(content, str) and content.startswith('{'):
+                    parsed_content = json.loads(content)
+                    
+                    # Para áudio, verificar se há audioMessage
+                    if obj.tipo == 'audio' and 'audioMessage' in parsed_content:
+                        # Retornar endpoint que pode tentar baixar/servir o áudio
+                        return f"/api/audio/message/{obj.id}/public/"
+                    
+                    # Para outras mídias, implementar lógica similar se necessário
+                    elif obj.tipo in ['image', 'imagem'] and 'imageMessage' in parsed_content:
+                        return f"/api/image/message/{obj.id}/public/"
+                    
+                    elif obj.tipo == 'video' and 'videoMessage' in parsed_content:
+                        return f"/api/video/message/{obj.id}/public/"
+                        
+                    elif obj.tipo in ['document', 'documento'] and 'documentMessage' in parsed_content:
+                        return f"/api/document/message/{obj.id}/public/"
+                        
+                    elif obj.tipo == 'sticker' and 'stickerMessage' in parsed_content:
+                        return f"/api/sticker/message/{obj.id}/public/"
+                
+            except (json.JSONDecodeError, AttributeError):
+                pass
+        
         return None
     
     def _get_local_media_url(self, obj, message_id):
@@ -324,6 +357,33 @@ class MensagemSerializer(serializers.ModelSerializer):
         import os
         from pathlib import Path
         import glob
+        from django.core.cache import cache
+        
+        # Cache key para evitar buscas repetitivas
+        cache_key = f"media_url_{obj.tipo}_{message_id}_{obj.chat.chat_id if hasattr(obj, 'chat') else 'no_chat'}"
+        cached_result = cache.get(cache_key)
+        
+        # Se temos resultado no cache e não é uma mensagem de áudio com audioMessage, usar o cache
+        if cached_result is not None:
+            # Verificação especial apenas para áudio: se tem audioMessage mas cache é negativo, reprocessar
+            if obj.tipo == 'audio' and cached_result == 'NOT_FOUND':
+                import json
+                content = obj.conteudo
+                if content and isinstance(content, str) and content.startswith('{'):
+                    try:
+                        parsed_content = json.loads(content)
+                        if 'audioMessage' in parsed_content:
+                            # Cache negativo incorreto - continuar processamento sem logs excessivos
+                            cache.delete(cache_key)
+                        else:
+                            return None  # Cache negativo correto
+                    except json.JSONDecodeError:
+                        return None
+                else:
+                    return None
+            else:
+                # Para outros tipos ou cache positivo, retornar resultado
+                return cached_result if cached_result != 'NOT_FOUND' else None
         
         try:
             # Caminho base da instância
@@ -335,12 +395,14 @@ class MensagemSerializer(serializers.ModelSerializer):
             instance_id = instance.instance_id
             chat_id = obj.chat.chat_id
             
-            # Normalizar tipo de mídia
+            # Normalizar tipo de mídia (manter consistente com a estrutura real de pastas)
             tipo_map = {
                 'audio': 'audio',
-                'image': 'imagens', 
+                'image': 'images', 
+                'imagem': 'images',
                 'video': 'videos',
-                'document': 'documentos',
+                'document': 'documents',
+                'documento': 'documents',
                 'sticker': 'stickers'
             }
             
@@ -349,41 +411,58 @@ class MensagemSerializer(serializers.ModelSerializer):
             # Caminho da pasta de mídia - CORRIGIDO
             base_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / tipo_pasta
             
-            print(f"🔍 Procurando em: {base_path}")
-            
             if not base_path.exists():
-                print(f"❌ Pasta não existe: {base_path}")
                 return None
             
-            # Procurar arquivo que começa com msg_{message_id}
-            pattern = f"msg_{message_id}_*"
-            arquivos = list(base_path.glob(pattern))
+            # Recuperar o message_id original completo 
+            full_message_id = obj.message_id if hasattr(obj, 'message_id') else message_id
             
-            print(f"🔍 Padrão: {pattern}")
-            print(f"🔍 Arquivos encontrados: {len(arquivos)}")
+            # Usar os mesmos padrões do endpoint whatsapp_audio_smart para garantir consistência
+            search_patterns = [
+                # Padrão 1: msg_<8_chars>_<timestamp>.ogg (mais comum)
+                f"msg_{message_id}_*.ogg",
+                # Padrão 2: msg_<8_chars>_<timestamp>.*
+                f"msg_{message_id}_*.*",
+                # Padrão 3: msg_<message_id_completo>.*
+                f"msg_{full_message_id}.*",
+                # Padrão 4: msg_<message_id_completo>_*.*
+                f"msg_{full_message_id}_*.*",
+                # Padrão 5: *<message_id>*.*
+                f"*{message_id}*.*",
+                # Padrão 6: *<full_message_id>*.*
+                f"*{full_message_id}*.*",
+                # Padrões legados
+                f"audio_{message_id}_*",
+                f"{message_id}_*",
+                f"msg_*_{message_id}_*"
+            ]
             
-            if arquivos:
-                arquivo = arquivos[0]  # Pegar o primeiro arquivo encontrado
-                print(f"✅ Arquivo encontrado: {arquivo.name}")
-                # Retornar URL relativa para o frontend
-                return f"/media/whatsapp_media/cliente_{cliente_id}/instance_{instance_id}/chats/{chat_id}/{tipo_pasta}/{arquivo.name}"
+            found_file = None
+            for pattern in search_patterns:
+                arquivos = list(base_path.glob(pattern))
+                
+                if arquivos:
+                    found_file = arquivos[0]  # Pegar o primeiro arquivo encontrado
+                    print(f"✅ Arquivo encontrado com padrão '{pattern}': {found_file.name}")
+                    break
+            
+            if found_file:
+                # Retornar URL usando o padrão correto do urls.py
+                result = f"/api/whatsapp-media/{cliente_id}/{instance_id}/{chat_id}/{tipo_pasta}/{found_file.name}"
+                # Cache o resultado por 24 horas (arquivos físicos não mudam)
+                cache.set(cache_key, result, 86400)
+                return result
             else:
-                # Tentar outros padrões
-                outros_padroes = [
-                    f"audio_{message_id}_*",
-                    f"{message_id}_*",
-                    f"msg_*_{message_id}_*",
-                    "*"
-                ]
-                
-                for padrao in outros_padroes:
-                    arquivos = list(base_path.glob(padrao))
-                    if arquivos:
-                        arquivo = arquivos[0]
-                        print(f"✅ Arquivo encontrado com padrão '{padrao}': {arquivo.name}")
-                        return f"/media/whatsapp_media/cliente_{cliente_id}/instance_{instance_id}/chats/{chat_id}/{tipo_pasta}/{arquivo.name}"
-                
-                print(f"❌ Nenhum arquivo encontrado para message_id: {message_id}")
+                # Para mensagens com audioMessage, não fazer cache negativo agressivo
+                import json
+                content = obj.conteudo
+                if (obj.tipo == 'audio' and content and isinstance(content, str) and 
+                    content.startswith('{') and 'audioMessage' in content):
+                    # Mensagem de áudio com dados JSON - cache negativo curto
+                    cache.set(cache_key, 'NOT_FOUND', 60)  # 1 minuto apenas
+                else:
+                    # Cache resultado negativo por 5 minutos para outros casos
+                    cache.set(cache_key, 'NOT_FOUND', 300)
                 return None
                 
         except Exception as e:
