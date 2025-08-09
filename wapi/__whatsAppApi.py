@@ -12,6 +12,11 @@ from backend.wapi.mensagem.editar.editarMensagens import EditarMensagem
 from backend.wapi.mensagem.reacao.enviarReacao import EnviarReacao
 from backend.wapi.mensagem.reacao.removerreacao import RemoverReacao
 
+# ⚠️ AVISO: DADOS FIXOS REMOVIDOS
+# Este arquivo foi corrigido para remover instance_id e tokens fixos.
+# TODO: Implementar busca dinâmica de credenciais do banco de dados.
+
+
 
 class WhatsAppAPI:
     def __init__(self, instance_id, api_token, base_url="https://api.w-api.app/v1/"):
@@ -182,8 +187,8 @@ class WhatsAppAPI:
 
 if __name__ == "__main__":
     # Configurações da API - substitua pelos seus dados reais
-    INSTANCE_ID = "3B6XIW-ZTS923-GEAY6V"
-    API_TOKEN = "Q8EOH07SJkXhg4iT6Qmhz1BJdLl8nL9WF"
+    INSTANCE_ID = None  # TODO: Obter dinamicamente do cliente
+    API_TOKEN = None  # TODO: Obter dinamicamente do cliente
     PHONE_NUMBER = "5569993291093"
     MESSAGE = "teste"
 

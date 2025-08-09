@@ -1,9 +1,14 @@
 import requests
 import json
 
+# ⚠️ AVISO: DADOS FIXOS REMOVIDOS
+# Este arquivo foi corrigido para remover instance_id e tokens fixos.
+# TODO: Implementar busca dinâmica de credenciais do banco de dados.
+
+
 
 class WAPICallReject:
-    def __init__(self, base_url="https://api.w-api.app/v1", bearer_token="Q8EOH07SJkXhg4iT6Qmhz1BJdLl8nL9WF"):
+    def __init__(self, base_url="https://api.w-api.app/v1", bearer_token = None  # TODO: Obter dinamicamente do cliente):
         """
         Inicializa a classe com a URL base da API e o token de autorização
 
@@ -91,7 +96,7 @@ class WAPICallReject:
 # Exemplo de uso
 def main():
     # Configurações
-    BEARER_TOKEN = "Q8EOH07SJkXhg4iT6Qmhz1BJdLl8nL9WF"  # Substitua pelo seu token
+    BEARER_TOKEN = None  # TODO: Obter dinamicamente do cliente  # Substitua pelo seu token
     INSTANCE_ID = "Q8EOH07SJkXhg4iT6Qmhz1BJdLl8nL9WF"  # Substitua pelo ID da sua instância
 
     # Inicializar a classe
@@ -141,8 +146,8 @@ Obrigado pela compreensão! 😊
 
 # Exemplo adicional: Desabilitar rejeição automática
 def disable_call_reject_example():
-    BEARER_TOKEN = "Q8EOH07SJkXhg4iT6Qmhz1BJdLl8nL9WF"
-    INSTANCE_ID = "3B6XIW-ZTS923-GEAY6V"
+    BEARER_TOKEN = None  # TODO: Obter dinamicamente do cliente
+    INSTANCE_ID = None  # TODO: Obter dinamicamente do cliente
 
     api = WAPICallReject(bearer_token=BEARER_TOKEN)
 

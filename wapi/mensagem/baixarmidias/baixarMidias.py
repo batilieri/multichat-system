@@ -1,4 +1,9 @@
 #!/usr/bin/env python3
+
+# ⚠️ AVISO: DADOS FIXOS REMOVIDOS
+# Este arquivo foi corrigido para remover instance_id e tokens fixos.
+# TODO: Implementar busca dinâmica de credenciais do banco de dados.
+
 """
 Monitor WhatsApp com Download e Descriptografia Automática de Mídia
 Monitora mensagens, descriptografa e organiza automaticamente imagens, vídeos, documentos e áudios
@@ -1294,8 +1299,8 @@ class BaixarMidias:
 if __name__ == '__main__':
     try:
         # Configurações
-        INSTANCE_ID = "3B6XIW-ZTS923-GEAY6V"
-        BEARER_TOKEN = "Q8EOH07SJkXhg4iT6Qmhz1BJdLl8nL9WF"
+        INSTANCE_ID = None  # TODO: Obter dinamicamente do cliente
+        BEARER_TOKEN = None  # TODO: Obter dinamicamente do cliente
         WEBHOOK_URL = "https://dream-photographs-tom-demographic.trycloudflare.com/requests?limit=100"
 
         # Inicializar manager

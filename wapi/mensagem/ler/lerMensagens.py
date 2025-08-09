@@ -1,6 +1,11 @@
 import requests
 from typing import Optional, Dict, Any, List
 
+# ⚠️ AVISO: DADOS FIXOS REMOVIDOS
+# Este arquivo foi corrigido para remover instance_id e tokens fixos.
+# TODO: Implementar busca dinâmica de credenciais do banco de dados.
+
+
 
 class LerMensagem:
     """
@@ -156,8 +161,8 @@ class LerMensagem:
 # Exemplo de uso
 if __name__ == "__main__":
     # Configurar suas credenciais
-    INSTANCE_ID = "3B6XIW-ZTS923-GEAY6V"
-    TOKEN = "Q8EOH07SJkXhg4iT6Qmhz1BJdLl8nL9WF"
+    INSTANCE_ID = None  # TODO: Obter dinamicamente do cliente
+    TOKEN = None  # TODO: Obter dinamicamente do cliente
 
     # Criar instância da classe
     leitor = LerMensagem(INSTANCE_ID, TOKEN)

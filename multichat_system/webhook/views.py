@@ -5,6 +5,7 @@ Integração com o sistema MultiChat para salvar mensagens nos chats
 
 import json
 import logging
+import os
 import re
 from datetime import datetime
 from django.http import JsonResponse
@@ -362,8 +363,10 @@ def process_webhook_message(webhook_data, event_type):
         return JsonResponse({'error': 'Erro interno do servidor'}, status=500)
 
 def process_media_automatically(webhook_data, cliente, instance):
-    """Processa mídias automaticamente quando recebidas via webhook"""
+    """Processa mídias automaticamente quando recebidas via webhook - VERSÃO CORRIGIDA"""
     try:
+        print(f"🔄 INICIANDO DOWNLOAD AUTOMÁTICO - Cliente: {cliente.nome}")
+        
         msg_content = webhook_data.get('msgContent', {})
         message_id = webhook_data.get('messageId')
         
@@ -386,65 +389,26 @@ def process_media_automatically(webhook_data, cliente, instance):
                 break
         
         if not detected_media:
+            print(f"❌ Nenhuma mídia detectada no webhook")
             return False
         
         print(f"📎 Mídia detectada: {media_type}")
         print(f"📋 Dados da mídia: {list(detected_media.keys())}")
         
-        # CRIAÇÃO AUTOMÁTICA DE PASTAS DE MÍDIA
-        # Buscar chat baseado no sender_id
-        sender = webhook_data.get('sender', {})
-        sender_id = sender.get('id', '')
-        
-        if sender_id:
-            # Normalizar chat_id
-            chat_id = normalize_chat_id(sender_id)
-            
-            if chat_id:
-                # Buscar ou criar chat
-                chat, created = Chat.objects.get_or_create(
-                    chat_id=chat_id,
-                    cliente=cliente,
-                    defaults={
-                        "status": "active",
-                        "canal": "whatsapp",
-                        "data_inicio": timezone.now(),
-                        "last_message_at": timezone.now()
-                    }
-                )
-                
-                if chat:
-                    # Criar pasta específica para o tipo de mídia
-                    if media_type == 'audio':
-                        pasta_criada = criar_pasta_audio_automatica(chat, instance, message_id)
-                        if pasta_criada:
-                            print(f"🎵 Pasta de áudio criada automaticamente: {pasta_criada}")
-                    elif media_type == 'image':
-                        pasta_criada = criar_pasta_imagem_automatica(chat, instance, message_id)
-                        if pasta_criada:
-                            print(f"🖼️ Pasta de imagem criada automaticamente: {pasta_criada}")
-                    elif media_type == 'video':
-                        pasta_criada = criar_pasta_video_automatica(chat, instance, message_id)
-                        if pasta_criada:
-                            print(f"🎬 Pasta de vídeo criada automaticamente: {pasta_criada}")
-                    elif media_type == 'document':
-                        pasta_criada = criar_pasta_documento_automatica(chat, instance, message_id)
-                        if pasta_criada:
-                            print(f"📄 Pasta de documento criada automaticamente: {pasta_criada}")
-                    elif media_type == 'sticker':
-                        pasta_criada = criar_pasta_sticker_automatica(chat, instance, message_id)
-                        if pasta_criada:
-                            print(f"😀 Pasta de sticker criada automaticamente: {pasta_criada}")
-        
         # Extrair dados necessários para download
         media_key = detected_media.get('mediaKey', '')
         direct_path = detected_media.get('directPath', '')
         mimetype = detected_media.get('mimetype', '')
-        file_length = detected_media.get('fileLength', 0)
-        caption = detected_media.get('caption', '')
         
         # Dados do remetente
+        sender = webhook_data.get('sender', {})
         sender_name = sender.get('pushName', 'Desconhecido')
+        
+        # LOGS DETALHADOS PARA DEBUG
+        print(f"🔍 Verificando dados para download:")
+        print(f"   mediaKey: {'✅' if media_key else '❌'} {media_key[:20] if media_key else 'AUSENTE'}...")
+        print(f"   directPath: {'✅' if direct_path else '❌'} {direct_path[:50] if direct_path else 'AUSENTE'}...")
+        print(f"   mimetype: {'✅' if mimetype else '❌'} {mimetype}")
         
         # Fazer download da mídia
         if media_key and direct_path and mimetype:
@@ -458,33 +422,33 @@ def process_media_automatically(webhook_data, cliente, instance):
                 'mimetype': mimetype
             }
             
-            # Fazer download via W-API
-            wapi_result = download_media_via_wapi(
+            print(f"📡 Chamando download_media_via_wapi...")
+            
+            # Fazer download via W-API (FUNÇÃO CORRIGIDA)
+            file_path = download_media_via_wapi(
                 instance.instance_id,
                 instance.token,
                 media_data
             )
             
-            if wapi_result and wapi_result.get('fileLink'):
-                # Salvar arquivo
-                file_path = save_media_file(
-                    wapi_result['fileLink'],
-                    media_type,
-                    message_id,
-                    sender_name,
-                    cliente,
-                    instance
-                )
+            print(f"📋 Resultado do download_media_via_wapi: {type(file_path)} - {file_path}")
+            
+            # CORREÇÃO: A função agora retorna diretamente o caminho do arquivo
+            if file_path and isinstance(file_path, str) and os.path.exists(file_path):
+                print(f"✅ Mídia processada com sucesso!")
+                print(f"📁 Arquivo salvo: {file_path}")
                 
-                if file_path:
-                    print(f"✅ Mídia processada com sucesso!")
-                    print(f"📁 Arquivo salvo: {file_path}")
+                # Mover para estrutura correta por nome do cliente
+                new_file_path = reorganizar_arquivo_por_cliente(file_path, cliente, instance, media_type, webhook_data)
+                
+                if new_file_path:
+                    print(f"📂 Arquivo reorganizado: {new_file_path}")
                     return True
                 else:
-                    print(f"❌ Falha ao salvar arquivo")
-                    return False
+                    print(f"⚠️ Arquivo baixado mas não reorganizado")
+                    return True
             else:
-                print(f"❌ Falha no download via W-API")
+                print(f"❌ Falha no download via W-API: {file_path}")
                 return False
         else:
             print(f"⚠️ Dados insuficientes para download:")
@@ -498,6 +462,44 @@ def process_media_automatically(webhook_data, cliente, instance):
         import traceback
         traceback.print_exc()
         return False
+
+
+def reorganizar_arquivo_por_cliente(file_path, cliente, instance, media_type, webhook_data):
+    """Reorganiza arquivo na estrutura correta por nome do cliente"""
+    try:
+        from pathlib import Path
+        import shutil
+        
+        # Extrair chat_id do webhook
+        chat = webhook_data.get('chat', {})
+        chat_id = chat.get('id', 'unknown')
+        
+        # Normalizar chat_id
+        chat_id = normalize_chat_id(chat_id)
+        
+        # Nome do cliente (remover caracteres especiais)
+        cliente_nome = "".join(c for c in cliente.nome if c.isalnum() or c in (' ', '-', '_')).strip()
+        cliente_nome = cliente_nome.replace(' ', '_')
+        
+        # Nova estrutura: media_storage/NOME_CLIENTE/instance_ID/chats/CHAT_ID/TIPO_MIDIA/
+        # Usar caminho correto a partir da raiz do projeto
+        nova_estrutura = Path(__file__).parent.parent / "media_storage" / cliente_nome / f"instance_{instance.instance_id}" / "chats" / str(chat_id) / media_type
+        nova_estrutura.mkdir(parents=True, exist_ok=True)
+        
+        # Nome do arquivo
+        arquivo_original = Path(file_path)
+        novo_caminho = nova_estrutura / arquivo_original.name
+        
+        # Mover arquivo
+        shutil.move(str(arquivo_original), str(novo_caminho))
+        
+        print(f"📂 Estrutura criada: {cliente_nome}/instance_{instance.instance_id}/chats/{chat_id}/{media_type}/")
+        
+        return str(novo_caminho)
+        
+    except Exception as e:
+        print(f"❌ Erro ao reorganizar arquivo: {e}")
+        return None
 
 
 def process_webhook_presence(webhook_data):
@@ -1249,28 +1251,47 @@ def webhook_status(request):
 
 
 def download_media_via_wapi(instance_id, bearer_token, media_data):
-    """Faz download de mídia diretamente via API W-API com melhor tratamento de erros"""
+    """
+    Download de mídia via W-API - CORRIGIDO conforme documentação oficial
+    Principais correções:
+    1. Validação prévia de campos obrigatórios
+    2. Correção da lógica de verificação de erro  
+    3. Logs mais detalhados
+    4. Remoção de .get() com valores padrão vazios
+    """
     try:
         import requests
         import json
         import time
         
+        # 1. VALIDAÇÃO PRÉVIA DOS DADOS (NOVO)
+        campos_obrigatorios = ['mediaKey', 'directPath', 'type', 'mimetype']
+        for campo in campos_obrigatorios:
+            if not media_data.get(campo):
+                print(f"❌ Campo obrigatório ausente: {campo}")
+                print(f"   Dados recebidos: {list(media_data.keys())}")
+                return None
+        
+        # 2. ENDPOINT CONFORME DOCUMENTAÇÃO
         url = f"https://api.w-api.app/v1/message/download-media?instanceId={instance_id}"
         
+        # 3. HEADERS CONFORME DOCUMENTAÇÃO
         headers = {
             'Authorization': f'Bearer {bearer_token}',
             'Content-Type': 'application/json'
         }
         
+        # 4. PAYLOAD CONFORME DOCUMENTAÇÃO (SEM .get() com valores vazios)
         payload = {
-            'mediaKey': media_data.get('mediaKey', ''),
-            'directPath': media_data.get('directPath', ''),
-            'type': media_data.get('type', ''),
-            'mimetype': media_data.get('mimetype', '')
+            'mediaKey': media_data['mediaKey'],      # Direto, já validado acima
+            'directPath': media_data['directPath'],  # Direto, já validado acima
+            'type': media_data['type'],              # Direto, já validado acima
+            'mimetype': media_data['mimetype']       # Direto, já validado acima
         }
         
-        print(f"🔄 Fazendo requisição para W-API:")
+        print(f"🔄 Fazendo requisição para W-API (CORRIGIDA):")
         print(f"   URL: {url}")
+        print(f"   Headers: {json.dumps({k: v[:20] + '...' if k == 'Authorization' else v for k, v in headers.items()}, indent=2)}")
         print(f"   Payload: {json.dumps(payload, indent=2)}")
         
         # Tentar múltiplas vezes
@@ -1280,34 +1301,86 @@ def download_media_via_wapi(instance_id, bearer_token, media_data):
                 response = requests.post(url, headers=headers, json=payload, timeout=30)
                 
                 print(f"📡 Tentativa {attempt + 1}: {response.status_code}")
+                print(f"📨 Resposta completa: {response.text}")
                 
                 if response.status_code == 200:
                     data = response.json()
-                    if not data.get('error', True):
-                        print(f"✅ Download bem-sucedido:")
+                    
+                    # 5. TRATAMENTO DE RESPOSTA CORRIGIDO
+                    # CORREÇÃO CRÍTICA: Verificar se error é False (não True como default)
+                    if data.get('error', False) == False:  # CORRIGIDO!
+                        print(f"✅ Download bem-sucedido (CORRIGIDO):")
                         print(f"   fileLink: {data.get('fileLink', 'N/A')}")
                         print(f"   expires: {data.get('expires', 'N/A')}")
-                        return data
+                        
+                        # CORREÇÃO FINAL: Baixar o arquivo e retornar caminho
+                        file_link = data.get('fileLink')
+                        if file_link:
+                            # Obter dados para save_media_file
+                            from core.models import WhatsappInstance
+                            try:
+                                instance = WhatsappInstance.objects.get(instance_id=instance_id)
+                                cliente = instance.cliente
+                                
+                                # Salvar arquivo e retornar caminho
+                                file_path = save_media_file(
+                                    file_link=file_link,
+                                    media_type=media_data['type'],
+                                    message_id=f"download_{attempt}_{int(time.time())}",  # ID temporário
+                                    sender_name="Sistema",
+                                    cliente=cliente,
+                                    instance=instance
+                                )
+                                
+                                if file_path:
+                                    print(f"✅ Arquivo baixado e salvo: {file_path}")
+                                    return file_path
+                                else:
+                                    print(f"❌ Falha ao salvar arquivo")
+                                    return None
+                                    
+                            except Exception as e:
+                                print(f"❌ Erro ao salvar arquivo: {e}")
+                                return None
+                        else:
+                            print(f"❌ fileLink não encontrado na resposta")
+                            return None
                     else:
-                        print(f"❌ Erro na resposta: {data}")
+                        print(f"❌ API retornou erro: {data}")
+                        
+                        # Log detalhado do erro
+                        if 'message' in data:
+                            print(f"   Mensagem de erro: {data['message']}")
+                        
+                        # Se não é o último retry, continue tentando
+                        if attempt < max_retries - 1:
+                            print(f"   Tentando novamente em 2 segundos...")
+                            time.sleep(2)
+                            continue
+                        else:
+                            return None
                 else:
-                    print(f"❌ Status code: {response.status_code}")
-                    print(f"   Resposta: {response.text}")
-                
-                if attempt < max_retries - 1:
-                    print(f"⏳ Aguardando 2 segundos antes da próxima tentativa...")
-                    time.sleep(2)
+                    print(f"❌ Status HTTP inválido: {response.status_code}")
+                    print(f"   Headers da resposta: {dict(response.headers)}")
+                    
+                    # Se não é o último retry, continue tentando
+                    if attempt < max_retries - 1:
+                        print(f"⏳ Aguardando 2 segundos antes da próxima tentativa...")
+                        time.sleep(2)
                     
             except requests.exceptions.RequestException as e:
                 print(f"❌ Erro de conexão (tentativa {attempt + 1}): {e}")
                 if attempt < max_retries - 1:
+                    print(f"⏳ Aguardando 2 segundos antes da próxima tentativa...")
                     time.sleep(2)
         
         print(f"❌ Todas as {max_retries} tentativas falharam")
         return None
             
     except Exception as e:
-        print(f"❌ Erro geral: {e}")
+        print(f"❌ Erro geral na função download_media_via_wapi: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 def save_media_file(file_link, media_type, message_id, sender_name, cliente, instance):

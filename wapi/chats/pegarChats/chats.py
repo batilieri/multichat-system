@@ -1,11 +1,16 @@
 import requests
 from datetime import datetime
 
+# ⚠️ AVISO: DADOS FIXOS REMOVIDOS
+# Este arquivo foi corrigido para remover instance_id e tokens fixos.
+# TODO: Implementar busca dinâmica de credenciais do banco de dados.
+
+
 url = "https://api.w-api.app/v1/chats/fetch-chats"
-instance_id = "3B6XIW-ZTS923-GEAY6V"
+instance_id = None  # TODO: Obter dinamicamente do cliente
 per_page = 20
 page = 1
-token = "Q8EOH07SJkXhg4iT6Qmhz1BJdLl8nL9WF"
+token = None  # TODO: Obter dinamicamente do cliente
 
 params = {
     "instanceId": instance_id,

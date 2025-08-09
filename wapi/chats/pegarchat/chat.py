@@ -1,10 +1,15 @@
 import requests
 
+# ⚠️ AVISO: DADOS FIXOS REMOVIDOS
+# Este arquivo foi corrigido para remover instance_id e tokens fixos.
+# TODO: Implementar busca dinâmica de credenciais do banco de dados.
+
+
 # Configurações
 url = "https://api.w-api.app/v1/chats/chat"
-instance_id = "3B6XIW-ZTS923-GEAY6V"
+instance_id = None  # TODO: Obter dinamicamente do cliente
 phone_number = "556999267344@s.whatsapp.net"  # ou ID de grupo, ex: "120363149083623338@g.us"
-token = "Q8EOH07SJkXhg4iT6Qmhz1BJdLl8nL9WF"
+token = None  # TODO: Obter dinamicamente do cliente
 
 # Parâmetros da consulta
 params = {
