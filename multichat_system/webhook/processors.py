@@ -969,6 +969,15 @@ class WhatsAppWebhookProcessor:
                         data_envio=django_timezone.now()
                     )
                     logger.info(f"[FALLBACK] ✅ Mensagem criada com sucesso: {message_id}")
+                    
+                    # CORREÇÃO CRÍTICA: Processar download automático de mídias no fallback
+                    try:
+                        from .media_downloader import processar_midias_automaticamente
+                        logger.info(f"[FALLBACK] 🔄 Iniciando download automático de mídia...")
+                        processar_midias_automaticamente(webhook_event)
+                        logger.info(f"[FALLBACK] ✅ Download automático processado para mensagem {message_id}")
+                    except Exception as e:
+                        logger.error(f"[FALLBACK] ❌ Erro no download automático: {e}")
                 else:
                     logger.info(f"[FALLBACK] Mensagem já existe ou conteúdo vazio: {message_id}")
                 
