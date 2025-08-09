@@ -208,13 +208,32 @@ def webhook_send_message(request):
     
     try:
         webhook_data = json.loads(request.body)
+        
+        # 🔍 LOG DE DEBUG ESPECÍFICO PARA INVESTIGAÇÃO
+        logger.info(f"🔍 WEBHOOK DEBUG: fromMe={webhook_data.get('fromMe')} | keys={list(webhook_data.get('msgContent', {}).keys())}")
         print(f"📤 WEBHOOK ENVIAR MENSAGEM: {webhook_data}")
         
-        # Processar apenas mensagens enviadas (fromMe: true)
-        if webhook_data.get('fromMe') or webhook_data.get('data', {}).get('fromMe'):
+        # CORREÇÃO URGENTE: Processar TODOS os áudios independente de fromMe
+        # Verificar se tem mídia (áudio, imagem, vídeo, etc.)
+        msg_content = webhook_data.get('msgContent', {})
+        tem_midia = any(key in msg_content for key in ['audioMessage', 'imageMessage', 'videoMessage', 'documentMessage', 'stickerMessage'])
+        
+        logger.info(f"🔍 DEBUG CRÍTICO:")
+        logger.info(f"   fromMe: {webhook_data.get('fromMe')}")
+        logger.info(f"   messageId: {webhook_data.get('messageId', 'N/A')}")
+        logger.info(f"   tem_midia: {tem_midia}")
+        logger.info(f"   msgContent keys: {list(msg_content.keys())}")
+        
+        # Se tem mídia, SEMPRE processar (independente de fromMe)
+        if tem_midia:
+            logger.info(f"✅ PROCESSANDO MÍDIA (fromMe={webhook_data.get('fromMe')})")
+            return process_webhook_message(webhook_data, 'send_message')
+        # Se não tem mídia mas é fromMe=True, processar normalmente
+        elif webhook_data.get('fromMe') or webhook_data.get('data', {}).get('fromMe'):
             return process_webhook_message(webhook_data, 'send_message')
         else:
-            return JsonResponse({'status': 'ignored', 'message': 'Não é mensagem enviada'})
+            logger.info(f"⚠️ IGNORANDO (sem mídia e fromMe=False)")
+            return JsonResponse({'status': 'ignored', 'message': 'Sem mídia e não é mensagem enviada'})
             
     except Exception as e:
         logger.error(f"❌ Erro no webhook send_message: {e}")
@@ -233,11 +252,24 @@ def webhook_receive_message(request):
         webhook_data = json.loads(request.body)
         print(f"📥 WEBHOOK RECEBER MENSAGEM: {webhook_data}")
         
-        # Processar apenas mensagens recebidas (fromMe: false)
-        if not webhook_data.get('fromMe') and not webhook_data.get('data', {}).get('fromMe'):
+        # CORREÇÃO: Processar TODOS os áudios recebidos independente de fromMe
+        msg_content = webhook_data.get('msgContent', {})
+        tem_midia = any(key in msg_content for key in ['audioMessage', 'imageMessage', 'videoMessage', 'documentMessage', 'stickerMessage'])
+        
+        logger.info(f"🔍 RECEIVE DEBUG:")
+        logger.info(f"   fromMe: {webhook_data.get('fromMe')}")
+        logger.info(f"   tem_midia: {tem_midia}")
+        
+        # Se tem mídia, SEMPRE processar
+        if tem_midia:
+            logger.info(f"✅ PROCESSANDO MÍDIA RECEBIDA (fromMe={webhook_data.get('fromMe')})")
+            return process_webhook_message(webhook_data, 'receive_message')
+        # Se não tem mídia mas é fromMe=False, processar texto
+        elif not webhook_data.get('fromMe') and not webhook_data.get('data', {}).get('fromMe'):
             return process_webhook_message(webhook_data, 'receive_message')
         else:
-            return JsonResponse({'status': 'ignored', 'message': 'Não é mensagem recebida'})
+            logger.info(f"⚠️ IGNORANDO RECEIVE (sem mídia e fromMe=True)")
+            return JsonResponse({'status': 'ignored', 'message': 'Sem mídia e não é mensagem recebida'})
             
     except Exception as e:
         logger.error(f"❌ Erro no webhook receive_message: {e}")
@@ -470,12 +502,30 @@ def reorganizar_arquivo_por_cliente(file_path, cliente, instance, media_type, we
         from pathlib import Path
         import shutil
         
-        # Extrair chat_id do webhook
-        chat = webhook_data.get('chat', {})
-        chat_id = chat.get('id', 'unknown')
+        # Extrair chat_id do webhook (múltiplas fontes possíveis)
+        chat_id = (
+            webhook_data.get('chatId') or 
+            webhook_data.get('chat', {}).get('id') or
+            webhook_data.get('sender', {}).get('id') or
+            'unknown'
+        )
+        
+        print(f"🔍 DEBUG chat_id: {chat_id} (fonte: {webhook_data.keys()})")
         
         # Normalizar chat_id
         chat_id = normalize_chat_id(chat_id)
+        
+        # Se ainda é None, tentar extrair de sender
+        if not chat_id:
+            sender = webhook_data.get('sender', {})
+            if sender:
+                chat_id = sender.get('id', 'unknown')
+                print(f"🔍 chat_id do sender: {chat_id}")
+        
+        # Fallback final
+        if not chat_id:
+            chat_id = 'unknown_chat'
+            print(f"⚠️ chat_id não encontrado, usando fallback: {chat_id}")
         
         # Nome do cliente (remover caracteres especiais)
         cliente_nome = "".join(c for c in cliente.nome if c.isalnum() or c in (' ', '-', '_')).strip()
