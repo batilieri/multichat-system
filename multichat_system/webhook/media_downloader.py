@@ -51,8 +51,12 @@ class MultiChatMediaDownloader:
         media_base = Path(__file__).parent.parent / "media_storage"
         media_base.mkdir(exist_ok=True)
         
+        # Nome do cliente normalizado (igual ao que usamos em reorganizar_arquivo_por_cliente)
+        cliente_nome = "".join(c for c in self.cliente.nome if c.isalnum() or c in (' ', '-', '_')).strip()
+        cliente_nome = cliente_nome.replace(' ', '_')
+        
         # Pasta específica do cliente e instância
-        cliente_folder = media_base / f"cliente_{self.cliente.id}"
+        cliente_folder = media_base / cliente_nome
         instance_folder = cliente_folder / f"instance_{self.instance_id}"
         instance_folder.mkdir(parents=True, exist_ok=True)
         
