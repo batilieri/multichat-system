@@ -1283,80 +1283,36 @@ function renderMessageContent(message) {
       tipo === 'sticker' ||
       tipo === 'documento') {
     
-    // Verificação rápida: se claramente não há mídia, mostrar placeholder
-    const hasMediaUrl = message.media_url && (message.media_url.startsWith('/media/') || message.media_url.startsWith('/api/'))
-    const hasMediaContent = message.conteudo && typeof message.conteudo === 'string' && (message.conteudo.startsWith('/media/') || message.conteudo.startsWith('/api/'))
-    
-    // Verificar se há JSON com audioMessage, imageMessage, etc.
-    let hasJsonContent = false
-    try {
-      const content = message.content || message.conteudo
-      // Debug apenas para novas mensagens de áudio
-      if (tipo === 'audio' && message.id > 910) {
-        console.log('🔍 DEBUG Message.jsx - Nova mensagem áudio:', {
-          messageId: message.id,
-          tipo,
-          hasContent: !!content,
-          contentType: typeof content,
-          hasMediaUrl,
-          hasMediaContent
-        })
-      }
-      
-      if (typeof content === 'object') {
-        hasJsonContent = content.audioMessage || content.imageMessage || content.videoMessage || content.documentMessage || content.stickerMessage
-      } else if (typeof content === 'string' && (content.startsWith('{') || content.includes('Message'))) {
-        const parsedContent = JSON.parse(content)
-        hasJsonContent = parsedContent.audioMessage || parsedContent.imageMessage || parsedContent.videoMessage || parsedContent.documentMessage || parsedContent.stickerMessage
-        // Debug apenas para novas mensagens
-        if (tipo === 'audio' && message.id > 910) {
-          console.log('🔍 DEBUG - JSON parseado:', { parsedContent, hasJsonContent })
-        }
-      }
-    } catch (e) {
-      console.log('🔍 DEBUG - Erro ao parsear JSON:', e)
-    }
-    
-    // Para áudio, sempre tentar processar se não houver evidência clara de mídia
-    // A verificação prévia pode estar sendo muito restritiva
-    if (!hasMediaUrl && !hasMediaContent && !hasJsonContent && tipo !== 'audio') {
-      // Mostrar placeholder simples sem processamento apenas para outros tipos
-      const mediaTypeLabel = {
-        'image': '[Imagem]', 
-        'imagem': '[Imagem]',
-        'video': '[Vídeo]',
-        'sticker': '[Sticker]',
-        'document': '[Documento]',
-        'documento': '[Documento]'
-      }[tipo] || '[Mídia]'
-      
-      return (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-accent/30 border border-border rounded-lg p-2"
-        >
-          <p className="text-sm text-foreground opacity-60">{mediaTypeLabel}</p>
-        </motion.div>
-      )
-    }
-    
-    // Debug apenas para novas mensagens
-    if (message.id > 910) {
-      console.log('🎵 Usando MediaProcessor para tipo:', tipo);
-    }
-    return <MediaProcessor message={message} />
+    // SEMPRE usar o MediaProcessor para mídias - remover verificações restritivas
+    console.log('🎵 Usando MediaProcessor para tipo:', tipo);
+    return <MediaProcessor message={message} />;
   }
 
-  // Fallback para mensagens não reconhecidas
-  console.log('⚠️ Tipo de mensagem não reconhecido:', tipo);
+  // Para mensagens de texto com conteúdo JSON (fallback)
+  if (message.conteudo && typeof message.conteudo === 'string' && message.conteudo.startsWith('{')) {
+    try {
+      const parsedContent = JSON.parse(message.conteudo);
+      
+      // Se contém dados de mídia, usar MediaProcessor
+      if (parsedContent.audioMessage || parsedContent.imageMessage || 
+          parsedContent.videoMessage || parsedContent.documentMessage || 
+          parsedContent.stickerMessage) {
+        console.log('🎵 Conteúdo JSON com mídia detectado, usando MediaProcessor');
+        return <MediaProcessor message={message} />;
+      }
+    } catch (e) {
+      console.log('🔍 DEBUG - Erro ao parsear JSON:', e);
+    }
+  }
+
+  // Fallback: renderizar como texto se não for reconhecido
   return (
     <motion.p 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="whitespace-pre-wrap leading-relaxed pr-8"
+      className="whitespace-pre-wrap leading-relaxed pr-8 text-muted-foreground"
     >
-      {renderTextWithEmojis(message.conteudo || message.content || '[Mensagem não suportada]')}
+      {message.conteudo || message.content || '[Conteúdo não suportado]'}
     </motion.p>
   )
 }

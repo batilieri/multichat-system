@@ -172,12 +172,15 @@ class ChatSerializer(serializers.ModelSerializer):
             return obj.chat_id
 
     def get_ultima_mensagem(self, obj):
-        """Retorna a última mensagem do chat"""
+        """Retorna a última mensagem do chat com conteúdo processado"""
         ultima = obj.mensagens.order_by('-data_envio').first()
         if ultima:
+            # Processar o conteúdo para extrair informações legíveis
+            conteudo_processado = self._process_message_content(ultima.conteudo, ultima.tipo)
+            
             return {
                 "tipo": ultima.tipo,
-                "conteudo": ultima.conteudo,
+                "conteudo": conteudo_processado,
                 "data": ultima.data_envio.isoformat(),
                 "remetente": ultima.remetente,
                 "sender_display_name": ultima.get_sender_display_name()
@@ -188,6 +191,84 @@ class ChatSerializer(serializers.ModelSerializer):
             "data": obj.data_inicio.isoformat(),
             "remetente": "Sistema"
         }
+
+    def _process_message_content(self, conteudo, tipo):
+        """Processa o conteúdo da mensagem para exibição legível"""
+        if not conteudo:
+            return "[Sem conteúdo]"
+        
+        # Se for texto simples, retornar como está
+        if tipo == 'text' or tipo == 'texto':
+            return conteudo
+        
+        # Se for JSON, tentar extrair informações úteis
+        if isinstance(conteudo, str) and conteudo.strip().startswith('{'):
+            try:
+                import json
+                data = json.loads(conteudo)
+                
+                # Processar diferentes tipos de mídia
+                if 'audioMessage' in data:
+                    audio_data = data['audioMessage']
+                    # Retornar descrição legível do áudio
+                    if audio_data.get('seconds'):
+                        return f"🎵 Áudio ({audio_data['seconds']}s)"
+                    else:
+                        return "🎵 Áudio"
+                
+                elif 'imageMessage' in data:
+                    image_data = data['imageMessage']
+                    caption = image_data.get('caption', '')
+                    if caption:
+                        return f"🖼️ {caption}"
+                    else:
+                        return "🖼️ Imagem"
+                
+                elif 'videoMessage' in data:
+                    video_data = data['videoMessage']
+                    caption = video_data.get('caption', '')
+                    if caption:
+                        return f"🎬 {caption}"
+                    else:
+                        return "🎬 Vídeo"
+                
+                elif 'documentMessage' in data:
+                    doc_data = data['documentMessage']
+                    filename = doc_data.get('fileName', 'Documento')
+                    return f"📄 {filename}"
+                
+                elif 'stickerMessage' in data:
+                    return "😀 Sticker"
+                
+                elif 'locationMessage' in data:
+                    return "📍 Localização"
+                
+                elif 'contactMessage' in data:
+                    return "👤 Contato"
+                
+                elif 'textMessage' in data:
+                    return data['textMessage'].get('text', '[Texto]')
+                
+                else:
+                    # Se não reconhecer o tipo, retornar tipo genérico
+                    return f"[{tipo.capitalize()}]"
+                    
+            except (json.JSONDecodeError, KeyError):
+                # Se falhar ao processar JSON, retornar tipo genérico
+                return f"[{tipo.capitalize()}]"
+        
+        # Para outros tipos, retornar descrição baseada no tipo
+        tipo_display = {
+            'audio': '🎵 Áudio',
+            'image': '🖼️ Imagem', 
+            'video': '🎬 Vídeo',
+            'document': '📄 Documento',
+            'sticker': '😀 Sticker',
+            'location': '📍 Localização',
+            'contact': '👤 Contato'
+        }.get(tipo, f"[{tipo.capitalize()}]")
+        
+        return tipo_display
 
     def get_total_mensagens(self, obj):
         """Retorna o total de mensagens do chat"""
