@@ -152,33 +152,38 @@ export const MediaProcessor = ({ message }) => {
       return
     }
     
-    // Prioridade 1: URL da nova estrutura de chat_id (backend modificado)
-    if (message.media_url && (message.media_url.startsWith('/media/whatsapp_media/') || message.media_url.startsWith('/api/whatsapp-media/'))) {
+    // Prioridade 1: NOVO ENDPOINT DE MAPEAMENTO INTELIGENTE POR HASH
+    if (message.id) {
+      url = `http://localhost:8000/api/audio/hash-mapping/${message.id}/`
+      console.log('🎵 URL de mapeamento inteligente por hash:', url)
+    }
+    // Prioridade 2: URL da nova estrutura de chat_id (backend modificado)
+    else if (message.media_url && (message.media_url.startsWith('/media/whatsapp_media/') || message.media_url.startsWith('/api/whatsapp-media/'))) {
       url = message.media_url.startsWith('/api/') ? `http://localhost:8000${message.media_url}` : `http://localhost:8000/api${message.media_url}`
       console.log('🎵 URL da nova estrutura:', url)
     }
-    // Prioridade 2: Conteúdo já é a URL local (serializer modificado)
+    // Prioridade 3: Conteúdo já é a URL local (serializer modificado)
     else if (message.conteudo && typeof message.conteudo === 'string' && (message.conteudo.startsWith('/media/') || message.conteudo.startsWith('/api/'))) {
       url = message.conteudo.startsWith('/api/') ? `http://localhost:8000${message.conteudo}` : `http://localhost:8000/api${message.conteudo}`
       console.log('🎵 URL do conteúdo:', url)
     }
-    // Prioridade 3: URL da pasta /wapi/midias/
+    // Prioridade 4: URL da pasta /wapi/midias/
     else if (audioMessage.url && audioMessage.url.startsWith('/wapi/midias/')) {
       const filename = audioMessage.url.split('/').pop()
       url = `http://localhost:8000/api/wapi-media/audios/${filename}`
       console.log('🎵 URL /wapi/midias/:', url)
     }
-    // Prioridade 4: Nome do arquivo na pasta /wapi/midias/
+    // Prioridade 5: Nome do arquivo na pasta /wapi/midias/
     else if (audioMessage.fileName) {
       url = `http://localhost:8000/api/wapi-media/audios/${audioMessage.fileName}`
       console.log('🎵 URL por fileName:', url)
     }
-    // Prioridade 5: URL direta do JSON (WhatsApp)
+    // Prioridade 6: URL direta do JSON (WhatsApp)
     else if (audioMessage.url && audioMessage.url.startsWith('http')) {
       url = audioMessage.url
       console.log('🎵 URL direta do WhatsApp:', url)
     }
-    // Prioridade 6: Endpoint público por ID da mensagem
+    // Prioridade 7: Endpoint público por ID da mensagem (fallback)
     else if (message.id) {
       url = `http://localhost:8000/api/audio/message/${message.id}/public/`
       console.log('🎵 URL fallback público por ID:', url)

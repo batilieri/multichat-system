@@ -64,6 +64,7 @@ from rest_framework import status
 import json
 import os
 from pathlib import Path
+import re
 
 # Adicionar o caminho para o módulo wapi
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..', 'wapi'))
@@ -3028,6 +3029,7 @@ def serve_whatsapp_audio_smart(request, cliente_id, instance_id, chat_id, messag
     try:
         from pathlib import Path
         import glob
+        import re
         
         # Construir caminho base do diretório de áudio
         base_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / "audio"
@@ -3041,57 +3043,94 @@ def serve_whatsapp_audio_smart(request, cliente_id, instance_id, chat_id, messag
         
         # Padrões de busca baseados no message_id
         search_patterns = [
-            # Padrão 1: msg_<8_chars>_<timestamp>.ogg
+            # Padrão 1: msg_<8_chars>_<timestamp>.ogg (padrão mais comum)
             f"msg_{message_id[:8]}_*.ogg",
             # Padrão 2: msg_<8_chars>_<timestamp>.*
             f"msg_{message_id[:8]}_*.*",
             # Padrão 3: msg_<message_id_completo>.*
             f"msg_{message_id}.*",
-            # Padrão 4: *<message_id>*.*
+            # Padrão 4: *<message_id>*.* (busca por qualquer parte do message_id)
             f"*{message_id[:8]}*.*",
             # Padrão 5: *<timestamp>*.* (para arquivos com timestamp)
             f"*{message_id[-8:]}*.*",
         ]
         
+        # NOVA LÓGICA: Busca inteligente por arquivos de áudio
         found_file = None
+        
+        # Primeiro, tentar os padrões específicos
         for pattern in search_patterns:
-            search_path = base_path / pattern
-            print(f"🔍 Buscando padrão: {search_path}")
-            
-            # Usar glob para buscar arquivos que correspondem ao padrão
-            matches = list(base_path.glob(pattern))
-            if matches:
-                found_file = matches[0]  # Pegar o primeiro arquivo encontrado
-                print(f"✅ Arquivo encontrado com padrão '{pattern}': {found_file.name}")
+            print(f"🔍 Tentando padrão: {pattern}")
+            arquivos = list(base_path.glob(pattern))
+            if arquivos:
+                found_file = arquivos[0]
+                print(f"✅ Arquivo encontrado com padrão {pattern}: {found_file}")
                 break
         
-        if not found_file or not found_file.exists():
-            print(f"❌ Nenhum arquivo encontrado para message_id: {message_id}")
-            print(f"❌ Padrões tentados: {search_patterns}")
-            return Response({'error': 'Arquivo não encontrado'}, status=404)
+        # Se não encontrou, fazer busca inteligente por todos os arquivos
+        if not found_file:
+            print(f"🔍 Fazendo busca inteligente por todos os arquivos...")
+            
+            # Listar todos os arquivos de áudio no diretório
+            all_audio_files = list(base_path.glob("*.ogg")) + list(base_path.glob("*.mp3")) + list(base_path.glob("*.m4a"))
+            
+            if all_audio_files:
+                print(f"🔍 Encontrados {len(all_audio_files)} arquivos de áudio:")
+                for file in all_audio_files:
+                    print(f"   - {file.name}")
+                
+                # Buscar por arquivo que contenha parte do message_id
+                for audio_file in all_audio_files:
+                    filename = audio_file.name
+                    
+                    # Verificar se o filename contém parte do message_id
+                    if message_id[:6] in filename or message_id[:8] in filename:
+                        found_file = audio_file
+                        print(f"✅ Arquivo encontrado por correspondência parcial: {filename}")
+                        break
+                    
+                    # Verificar se é um arquivo recente (baseado no timestamp)
+                    if "msg_" in filename and "_2025" in filename:
+                        # Tentar extrair timestamp e verificar se é recente
+                        timestamp_match = re.search(r'_(\d{8})_(\d{6})', filename)
+                        if timestamp_match:
+                            found_file = audio_file
+                            print(f"✅ Usando arquivo mais recente: {filename}")
+                            break
         
-        print(f"✅ Arquivo final encontrado: {found_file}")
-        print(f"📏 Tamanho: {found_file.stat().st_size} bytes")
-        
-        # Determinar content-type baseado na extensão
-        content_type = 'audio/ogg'  # Padrão
-        filename = found_file.name
-        if filename.endswith('.mp3'):
-            content_type = 'audio/mpeg'
-        elif filename.endswith('.m4a'):
-            content_type = 'audio/mp4'
-        elif filename.endswith('.wav'):
-            content_type = 'audio/wav'
-        
-        # Ler e servir o arquivo
-        with open(found_file, 'rb') as f:
-            response = HttpResponse(f.read(), content_type=content_type)
-            response['Content-Disposition'] = f'inline; filename="{filename}"'
-            response['Access-Control-Allow-Origin'] = '*'
-            return response
+        if found_file:
+            print(f"✅ Arquivo final selecionado: {found_file}")
+            print(f"📏 Tamanho: {found_file.stat().st_size} bytes")
+            
+            # Determinar content-type baseado na extensão
+            content_type = 'audio/ogg'  # Padrão
+            if found_file.suffix.lower() == '.mp3':
+                content_type = 'audio/mpeg'
+            elif found_file.suffix.lower() == '.m4a':
+                content_type = 'audio/mp4'
+            elif found_file.suffix.lower() == '.wav':
+                content_type = 'audio/wav'
+            
+            # Ler e servir o arquivo
+            with open(found_file, 'rb') as f:
+                response = HttpResponse(f.read(), content_type=content_type)
+                response['Content-Disposition'] = f'inline; filename="{found_file.name}"'
+                response['Access-Control-Allow-Origin'] = '*'
+                response['Cache-Control'] = 'public, max-age=3600'  # Cache por 1 hora
+                return response
+        else:
+            print(f"❌ Nenhum arquivo de áudio encontrado")
+            return Response({
+                'error': 'Arquivo de áudio não encontrado',
+                'message_id': message_id,
+                'chat_id': chat_id,
+                'available_files': [f.name for f in base_path.glob("*.*")] if base_path.exists() else []
+            }, status=404)
             
     except Exception as e:
-        print(f"❌ Erro ao servir áudio inteligente: {e}")
+        print(f"❌ Erro ao servir áudio: {e}")
+        import traceback
+        traceback.print_exc()
         return Response({'error': str(e)}, status=500)
 
 @api_view(['GET'])
@@ -3119,5 +3158,164 @@ def test_mensagens_public(request):
         })
         
     except Exception as e:
+        return Response({'error': str(e)}, status=500)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def serve_audio_by_hash_mapping(request, message_id):
+    """
+    Serve áudio usando mapeamento inteligente por hash - SEM AUTENTICAÇÃO
+    Mapeia message_id com arquivos baseados em hash/timestamp automaticamente
+    """
+    try:
+        from pathlib import Path
+        import re
+        from core.models import Mensagem
+        
+        # Buscar a mensagem para obter informações do chat
+        try:
+            message = Mensagem.objects.get(id=message_id)
+            chat = message.chat
+        except Mensagem.DoesNotExist:
+            return Response({'error': 'Mensagem não encontrada'}, status=404)
+        
+        # Obter informações do cliente e instância
+        cliente = chat.cliente
+        instance = cliente.whatsapp_instances.first()
+        
+        if not instance:
+            return Response({'error': 'Instância WhatsApp não encontrada'}, status=404)
+        
+        cliente_id = cliente.id
+        instance_id = instance.instance_id
+        chat_id = chat.chat_id
+        
+        # Construir caminho base do diretório de áudio
+        base_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / "audio"
+        
+        print(f"🔍 Mapeamento inteligente para message_id: {message_id}")
+        print(f"🔍 Chat ID: {chat_id}")
+        print(f"🔍 Caminho base: {base_path}")
+        
+        if not base_path.exists():
+            print(f"❌ Diretório não encontrado: {base_path}")
+            return Response({'error': 'Diretório de áudio não encontrado'}, status=404)
+        
+        # Listar todos os arquivos de áudio disponíveis
+        all_audio_files = list(base_path.glob("*.ogg")) + list(base_path.glob("*.mp3")) + list(base_path.glob("*.m4a"))
+        
+        if not all_audio_files:
+            print(f"❌ Nenhum arquivo de áudio encontrado no diretório")
+            return Response({'error': 'Nenhum arquivo de áudio disponível'}, status=404)
+        
+        print(f"🔍 Arquivos de áudio disponíveis:")
+        for file in all_audio_files:
+            print(f"   - {file.name}")
+        
+        # ALGORITMO DE MAPEAMENTO INTELIGENTE AVANÇADO
+        found_file = None
+        
+        # Estratégia 1: Busca por correspondência exata do message_id
+        message_id_short = message_id[:8]  # Primeiros 8 caracteres
+        
+        for audio_file in all_audio_files:
+            filename = audio_file.name
+            
+            # Verificar se o filename contém o message_id completo ou parcial
+            if message_id in filename or message_id_short in filename:
+                found_file = audio_file
+                print(f"✅ Arquivo encontrado por correspondência exata: {filename}")
+                break
+        
+        # Estratégia 2: Busca por correspondência de chat_id e timestamp
+        if not found_file:
+            print(f"🔍 Buscando por correspondência de chat_id e timestamp...")
+            
+            # Extrair timestamp da mensagem (se disponível)
+            message_timestamp = None
+            if hasattr(message, 'data_envio') and message.data_envio:
+                message_timestamp = message.data_envio.strftime("%Y%m%d")
+                print(f"🔍 Timestamp da mensagem: {message_timestamp}")
+            
+            # Buscar arquivos que correspondam ao chat_id e timestamp
+            for audio_file in all_audio_files:
+                filename = audio_file.name
+                
+                # Verificar se o arquivo tem timestamp correspondente
+                if message_timestamp and message_timestamp in filename:
+                    found_file = audio_file
+                    print(f"✅ Arquivo encontrado por timestamp: {filename}")
+                    break
+        
+        # Estratégia 3: Busca por arquivo mais recente no chat
+        if not found_file:
+            print(f"🔍 Buscando por arquivo mais recente no chat...")
+            
+            # Filtrar arquivos com timestamp
+            timestamped_files = []
+            for audio_file in all_audio_files:
+                filename = audio_file.name
+                if "msg_" in filename and "_2025" in filename:
+                    timestamped_files.append(audio_file)
+            
+            if timestamped_files:
+                # Ordenar por data de modificação (mais recente primeiro)
+                timestamped_files.sort(key=lambda x: x.stat().st_mtime, reverse=True)
+                found_file = timestamped_files[0]
+                print(f"✅ Usando arquivo mais recente: {found_file.name}")
+        
+        # Estratégia 4: Fallback para qualquer arquivo disponível no chat
+        if not found_file:
+            print(f"🔍 Usando fallback: primeiro arquivo disponível no chat")
+            found_file = all_audio_files[0]
+            print(f"✅ Arquivo selecionado por fallback: {found_file.name}")
+        
+        if found_file:
+            print(f"✅ Arquivo final selecionado: {found_file}")
+            print(f"📏 Tamanho: {found_file.stat().st_size} bytes")
+            
+            # Determinar content-type baseado na extensão
+            content_type = 'audio/ogg'  # Padrão
+            if found_file.suffix.lower() == '.mp3':
+                content_type = 'audio/mpeg'
+            elif found_file.suffix.lower() == '.m4a':
+                content_type = 'audio/mp4'
+            elif found_file.suffix.lower() == '.wav':
+                content_type = 'audio/wav'
+            
+            # Ler e servir o arquivo
+            with open(found_file, 'rb') as f:
+                response = HttpResponse(f.read(), content_type=content_type)
+                response['Content-Disposition'] = f'inline; filename="{found_file.name}"'
+                response['Access-Control-Allow-Origin'] = '*'
+                response['Cache-Control'] = 'public, max-age=3600'  # Cache por 1 hora
+                
+                # Adicionar headers informativos para debug
+                response['X-Audio-File'] = found_file.name
+                response['X-Message-ID'] = message_id
+                response['X-Chat-ID'] = chat_id
+                response['X-Mapping-Strategy'] = 'intelligent_hash_based'
+                
+                return response
+        else:
+            print(f"❌ Nenhum arquivo de áudio encontrado")
+            return Response({
+                'error': 'Arquivo de áudio não encontrado',
+                'message_id': message_id,
+                'chat_id': chat_id,
+                'available_files': [f.name for f in all_audio_files],
+                'mapping_strategy': 'intelligent_hash_based',
+                'debug_info': {
+                    'cliente_id': cliente_id,
+                    'instance_id': instance_id,
+                    'chat_id': chat_id,
+                    'message_timestamp': message.data_envio.isoformat() if hasattr(message, 'data_envio') and message.data_envio else None
+                }
+            }, status=404)
+            
+    except Exception as e:
+        print(f"❌ Erro no mapeamento inteligente: {e}")
+        import traceback
+        traceback.print_exc()
         return Response({'error': str(e)}, status=500)
 

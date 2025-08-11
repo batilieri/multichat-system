@@ -27,7 +27,8 @@ from .views import (
     serve_video_message,
     serve_sticker_message,
     serve_document_message,
-    test_mensagens_public
+    test_mensagens_public,
+    serve_audio_by_hash_mapping
 )
 
 # Router principal para ViewSets
@@ -66,6 +67,7 @@ urlpatterns = [
     path('audio/message/<int:message_id>/public/', serve_audio_message_public, name='serve_audio_message_public'),
     path('whatsapp-audio/<int:cliente_id>/<str:instance_id>/<str:chat_id>/<str:filename>/', serve_whatsapp_audio, name='serve_whatsapp_audio'),
     path('whatsapp-audio-smart/<int:cliente_id>/<str:instance_id>/<str:chat_id>/<str:message_id>/', serve_whatsapp_audio_smart, name='serve_whatsapp_audio_smart'),
+    path('audio/hash-mapping/<int:message_id>/', serve_audio_by_hash_mapping, name='serve_audio_by_hash_mapping'),
     
     # Endpoints de mídia (com autenticação)
     path('audio/message/<int:message_id>/', serve_audio_message, name='serve_audio_message'),
