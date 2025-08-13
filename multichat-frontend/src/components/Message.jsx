@@ -33,6 +33,7 @@ import { useToast } from "../components/ui/use-toast"
 import { togglePinMessage, toggleFavoriteMessage } from '../data/mock/messages'
 import { getAllChats } from '../data/mock/chats'
 import MediaProcessor from './MediaProcessor'
+import WhatsAppAudioPlayer from './WhatsAppAudioPlayer'
 
 // Tipos de mensagem suportados
 const MessageType = {
@@ -1271,19 +1272,22 @@ function renderMessageContent(message) {
     )
   }
 
-  // Para todos os outros tipos de mídia, usar o MediaProcessor
-  if (tipo === MessageType.AUDIO || 
-      tipo === MessageType.IMAGE || 
+  // Para mensagens de áudio, usar o WhatsAppAudioPlayer
+  if (tipo === MessageType.AUDIO || tipo === 'audio') {
+    console.log('🎵 Usando WhatsAppAudioPlayer para áudio');
+    return <WhatsAppAudioPlayer message={message} isOwnMessage={message.isOwn || message.from_me || message.fromMe} />;
+  }
+
+  // Para outros tipos de mídia, usar o MediaProcessor
+  if (tipo === MessageType.IMAGE || 
       tipo === MessageType.VIDEO || 
       tipo === MessageType.STICKER || 
       tipo === MessageType.DOCUMENT ||
-      tipo === 'audio' ||  // Adicionar comparação direta
       tipo === 'imagem' ||
       tipo === 'video' ||
       tipo === 'sticker' ||
       tipo === 'documento') {
     
-    // SEMPRE usar o MediaProcessor para mídias - remover verificações restritivas
     console.log('🎵 Usando MediaProcessor para tipo:', tipo);
     return <MediaProcessor message={message} />;
   }

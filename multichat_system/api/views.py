@@ -2980,158 +2980,124 @@ def serve_audio_message_public(request, message_id):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-def serve_whatsapp_audio(request, cliente_id, instance_id, chat_id, filename):
+def serve_whatsapp_audio(request, cliente_id, instance_id, chat_id, message_id):
     """
-    Serve áudio da nova estrutura de armazenamento - SEM AUTENTICAÇÃO
+    Serve áudio da estrutura media_storage do WhatsApp
     """
     try:
-        from pathlib import Path
+        logger.info(f"Servindo áudio WhatsApp: cliente={cliente_id}, instance={instance_id}, chat={chat_id}, message={message_id}")
         
-        # Construir caminho do arquivo
-        file_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / "audio" / filename
+        # Buscar mensagem para obter informações do áudio
+        try:
+            mensagem = Mensagem.objects.get(
+                message_id=message_id,
+                tipo='audio',
+                chat__chat_id=chat_id
+            )
+        except Mensagem.DoesNotExist:
+            logger.warning(f"Mensagem de áudio não encontrada: {message_id}")
+            return Response({'error': 'Mensagem não encontrada'}, status=404)
         
-        print(f"🔍 Procurando arquivo: {file_path}")
+        # Extrair caminho do arquivo do conteúdo JSON
+        audio_path = None
+        try:
+            conteudo_json = json.loads(mensagem.conteudo)
+            audio_message = conteudo_json.get('audioMessage', {})
+            
+            # Prioridade 1: localPath (caminho absoluto)
+            if audio_message.get('localPath'):
+                audio_path = audio_message['localPath']
+                logger.info(f"Usando localPath: {audio_path}")
+            
+            # Prioridade 2: directPath (caminho relativo)
+            elif audio_message.get('directPath'):
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                audio_path = os.path.join(project_root, 'media_storage', audio_message['directPath'])
+                logger.info(f"Usando directPath: {audio_path}")
+            
+            # Prioridade 3: fileName (buscar por nome)
+            elif audio_message.get('fileName'):
+                project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                audio_path = os.path.join(project_root, 'media_storage', f"{cliente_id}", instance_id, 'chats', chat_id, 'audio', audio_message['fileName'])
+                logger.info(f"Usando fileName: {audio_path}")
+            
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.error(f"Erro ao processar conteúdo JSON: {e}")
+            return Response({'error': 'Erro ao processar dados do áudio'}, status=500)
         
-        if not file_path.exists():
-            print(f"❌ Arquivo não encontrado: {file_path}")
-            return Response({'error': 'Arquivo não encontrado'}, status=404)
+        if not audio_path or not os.path.exists(audio_path):
+            logger.warning(f"Arquivo de áudio não encontrado: {audio_path}")
+            return Response({'error': 'Arquivo de áudio não encontrado'}, status=404)
         
-        print(f"✅ Arquivo encontrado: {file_path}")
-        print(f"📏 Tamanho: {file_path.stat().st_size} bytes")
-        
-        # Determinar content-type baseado na extensão
-        content_type = 'audio/ogg'  # Padrão
-        if filename.endswith('.mp3'):
-            content_type = 'audio/mpeg'
-        elif filename.endswith('.m4a'):
-            content_type = 'audio/mp4'
-        elif filename.endswith('.wav'):
-            content_type = 'audio/wav'
-        
-        # Ler e servir o arquivo
-        with open(file_path, 'rb') as f:
-            response = HttpResponse(f.read(), content_type=content_type)
-            response['Content-Disposition'] = f'inline; filename="{filename}"'
-            response['Access-Control-Allow-Origin'] = '*'
-            return response
+        # Servir arquivo
+        try:
+            with open(audio_path, 'rb') as audio_file:
+                response = HttpResponse(audio_file.read(), content_type='audio/ogg')
+                response['Content-Disposition'] = f'inline; filename="{os.path.basename(audio_path)}"'
+                return response
+        except Exception as e:
+            logger.error(f"Erro ao ler arquivo de áudio: {e}")
+            return Response({'error': 'Erro ao ler arquivo'}, status=500)
             
     except Exception as e:
-        print(f"❌ Erro ao servir áudio: {e}")
-        return Response({'error': str(e)}, status=500)
+        logger.error(f"Erro ao servir áudio WhatsApp: {e}")
+        return Response({'error': 'Erro interno do servidor'}, status=500)
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-def serve_whatsapp_audio_smart(request, cliente_id, instance_id, chat_id, message_id):
+def serve_local_audio(request, filename):
     """
-    Serve áudio da nova estrutura com auto-detecção de arquivo - SEM AUTENTICAÇÃO
-    Detecta automaticamente o arquivo baseado no message_id usando diferentes padrões
+    Serve áudio local por nome do arquivo
     """
     try:
-        from pathlib import Path
-        import glob
-        import re
+        logger.info(f"Servindo áudio local: {filename}")
         
-        # Construir caminho base do diretório de áudio
-        base_path = Path(__file__).parent.parent / "media_storage" / f"cliente_{cliente_id}" / f"instance_{instance_id}" / "chats" / str(chat_id) / "audio"
-        
-        print(f"🔍 Buscando áudio inteligente para message_id: {message_id}")
-        print(f"🔍 Caminho base: {base_path}")
-        
-        if not base_path.exists():
-            print(f"❌ Diretório não encontrado: {base_path}")
-            return Response({'error': 'Diretório de áudio não encontrado'}, status=404)
-        
-        # Padrões de busca baseados no message_id
-        search_patterns = [
-            # Padrão 1: msg_<8_chars>_<timestamp>.ogg (padrão mais comum)
-            f"msg_{message_id[:8]}_*.ogg",
-            # Padrão 2: msg_<8_chars>_<timestamp>.*
-            f"msg_{message_id[:8]}_*.*",
-            # Padrão 3: msg_<message_id_completo>.*
-            f"msg_{message_id}.*",
-            # Padrão 4: *<message_id>*.* (busca por qualquer parte do message_id)
-            f"*{message_id[:8]}*.*",
-            # Padrão 5: *<timestamp>*.* (para arquivos com timestamp)
-            f"*{message_id[-8:]}*.*",
+        # Buscar em todas as pastas de áudio
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        audio_dirs = [
+            os.path.join(project_root, 'media_storage'),
+            os.path.join(project_root, 'wapi', 'midias', 'audios'),
+            os.path.join(project_root, 'media', 'audios')
         ]
         
-        # NOVA LÓGICA: Busca inteligente por arquivos de áudio
-        found_file = None
-        
-        # Primeiro, tentar os padrões específicos
-        for pattern in search_patterns:
-            print(f"🔍 Tentando padrão: {pattern}")
-            arquivos = list(base_path.glob(pattern))
-            if arquivos:
-                found_file = arquivos[0]
-                print(f"✅ Arquivo encontrado com padrão {pattern}: {found_file}")
-                break
-        
-        # Se não encontrou, fazer busca inteligente por todos os arquivos
-        if not found_file:
-            print(f"🔍 Fazendo busca inteligente por todos os arquivos...")
-            
-            # Listar todos os arquivos de áudio no diretório
-            all_audio_files = list(base_path.glob("*.ogg")) + list(base_path.glob("*.mp3")) + list(base_path.glob("*.m4a"))
-            
-            if all_audio_files:
-                print(f"🔍 Encontrados {len(all_audio_files)} arquivos de áudio:")
-                for file in all_audio_files:
-                    print(f"   - {file.name}")
-                
-                # Buscar por arquivo que contenha parte do message_id
-                for audio_file in all_audio_files:
-                    filename = audio_file.name
-                    
-                    # Verificar se o filename contém parte do message_id
-                    if message_id[:6] in filename or message_id[:8] in filename:
-                        found_file = audio_file
-                        print(f"✅ Arquivo encontrado por correspondência parcial: {filename}")
+        audio_path = None
+        for audio_dir in audio_dirs:
+            if os.path.exists(audio_dir):
+                # Buscar arquivo recursivamente
+                for root, dirs, files in os.walk(audio_dir):
+                    if filename in files:
+                        audio_path = os.path.join(root, filename)
                         break
-                    
-                    # Verificar se é um arquivo recente (baseado no timestamp)
-                    if "msg_" in filename and "_2025" in filename:
-                        # Tentar extrair timestamp e verificar se é recente
-                        timestamp_match = re.search(r'_(\d{8})_(\d{6})', filename)
-                        if timestamp_match:
-                            found_file = audio_file
-                            print(f"✅ Usando arquivo mais recente: {filename}")
-                            break
+                if audio_path:
+                    break
         
-        if found_file:
-            print(f"✅ Arquivo final selecionado: {found_file}")
-            print(f"📏 Tamanho: {found_file.stat().st_size} bytes")
-            
-            # Determinar content-type baseado na extensão
-            content_type = 'audio/ogg'  # Padrão
-            if found_file.suffix.lower() == '.mp3':
-                content_type = 'audio/mpeg'
-            elif found_file.suffix.lower() == '.m4a':
-                content_type = 'audio/mp4'
-            elif found_file.suffix.lower() == '.wav':
-                content_type = 'audio/wav'
-            
-            # Ler e servir o arquivo
-            with open(found_file, 'rb') as f:
-                response = HttpResponse(f.read(), content_type=content_type)
-                response['Content-Disposition'] = f'inline; filename="{found_file.name}"'
-                response['Access-Control-Allow-Origin'] = '*'
-                response['Cache-Control'] = 'public, max-age=3600'  # Cache por 1 hora
+        if not audio_path or not os.path.exists(audio_path):
+            logger.warning(f"Arquivo de áudio não encontrado: {filename}")
+            return Response({'error': 'Arquivo de áudio não encontrado'}, status=404)
+        
+        # Determinar mimetype
+        ext = os.path.splitext(filename)[1].lower()
+        mimetypes = {
+            '.ogg': 'audio/ogg; codecs=opus',
+            '.mp3': 'audio/mpeg',
+            '.m4a': 'audio/mp4',
+            '.wav': 'audio/wav'
+        }
+        content_type = mimetypes.get(ext, 'audio/ogg')
+        
+        # Servir arquivo
+        try:
+            with open(audio_path, 'rb') as audio_file:
+                response = HttpResponse(audio_file.read(), content_type=content_type)
+                response['Content-Disposition'] = f'inline; filename="{filename}"'
                 return response
-        else:
-            print(f"❌ Nenhum arquivo de áudio encontrado")
-            return Response({
-                'error': 'Arquivo de áudio não encontrado',
-                'message_id': message_id,
-                'chat_id': chat_id,
-                'available_files': [f.name for f in base_path.glob("*.*")] if base_path.exists() else []
-            }, status=404)
+        except Exception as e:
+            logger.error(f"Erro ao ler arquivo de áudio: {e}")
+            return Response({'error': 'Erro ao ler arquivo'}, status=500)
             
     except Exception as e:
-        print(f"❌ Erro ao servir áudio: {e}")
-        import traceback
-        traceback.print_exc()
-        return Response({'error': str(e)}, status=500)
+        logger.error(f"Erro ao servir áudio local: {e}")
+        return Response({'error': 'Erro interno do servidor'}, status=500)
 
 @api_view(['GET'])
 @permission_classes([AllowAny])

@@ -22,13 +22,11 @@ from .views import (
     serve_audio_message,
     serve_audio_message_public,
     serve_whatsapp_audio,
-    serve_whatsapp_audio_smart,
+    serve_local_audio,
     serve_image_message,
     serve_video_message,
     serve_sticker_message,
-    serve_document_message,
-    test_mensagens_public,
-    serve_audio_by_hash_mapping
+    serve_document_message
 )
 
 # Router principal para ViewSets
@@ -65,9 +63,8 @@ urlpatterns = [
     path('audio/<path:audio_path>/', serve_audio, name='serve_audio'),
     path('audio/message/<int:message_id>/', serve_audio_by_message, name='serve_audio_by_message'),
     path('audio/message/<int:message_id>/public/', serve_audio_message_public, name='serve_audio_message_public'),
-    path('whatsapp-audio/<int:cliente_id>/<str:instance_id>/<str:chat_id>/<str:filename>/', serve_whatsapp_audio, name='serve_whatsapp_audio'),
-    path('whatsapp-audio-smart/<int:cliente_id>/<str:instance_id>/<str:chat_id>/<str:message_id>/', serve_whatsapp_audio_smart, name='serve_whatsapp_audio_smart'),
-    path('audio/hash-mapping/<int:message_id>/', serve_audio_by_hash_mapping, name='serve_audio_by_hash_mapping'),
+    path('whatsapp-audio/<int:cliente_id>/<str:instance_id>/<str:chat_id>/<str:message_id>/', serve_whatsapp_audio, name='serve_whatsapp_audio'),
+    path('local-audio/<str:filename>/', serve_local_audio, name='serve_local_audio'),
     
     # Endpoints de mídia (com autenticação)
     path('audio/message/<int:message_id>/', serve_audio_message, name='serve_audio_message'),
@@ -76,8 +73,7 @@ urlpatterns = [
     path('sticker/message/<int:message_id>/', serve_sticker_message, name='serve_sticker_message'),
     path('document/message/<int:message_id>/', serve_document_message, name='serve_document_message'),
     
-    # Endpoint público temporário para teste
-    path('test/mensagens/public/', test_mensagens_public, name='test_mensagens_public'),
+
 ]
 
 urlpatterns += [

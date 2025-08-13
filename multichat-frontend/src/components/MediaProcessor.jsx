@@ -7,7 +7,8 @@ import {
   Loader2,
   AlertTriangle,
   MessageCircle,
-  Eye
+  Eye,
+  Clock
 } from 'lucide-react'
 import { Slider } from './ui/slider'
 import { ImageModal } from './ImageModal'
@@ -29,6 +30,8 @@ export const MediaProcessor = ({ message }) => {
   const [mediaUrl, setMediaUrl] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [fallbackUrls, setFallbackUrls] = useState([])
+  const [currentUrlIndex, setCurrentUrlIndex] = useState(0)
 
   // Processar dados da mensagem para extrair informações de mídia
   useEffect(() => {
@@ -138,11 +141,74 @@ export const MediaProcessor = ({ message }) => {
     }
   }, [message])
 
-  // Processar mensagem de áudio
+  // Função para tentar próxima URL de fallback
+  const tryNextFallbackUrl = () => {
+    if (currentUrlIndex < fallbackUrls.length - 1) {
+      const nextIndex = currentUrlIndex + 1
+      const nextUrl = fallbackUrls[nextIndex]
+      
+      console.log(`🎵 Tentando URL de fallback ${nextIndex + 1}/${fallbackUrls.length}: ${nextUrl.description}`)
+      console.log(`🎵 URL: ${nextUrl.url}`)
+      
+      setCurrentUrlIndex(nextIndex)
+      setMediaUrl(nextUrl.url)
+      setError(null)
+      setIsLoading(true)
+      
+      return true
+    } else {
+      console.log('🎵 Todas as URLs de fallback foram tentadas')
+      setError('Não foi possível carregar a mídia com nenhuma das URLs disponíveis')
+      setIsLoading(false)
+      return false
+    }
+  }
+
+  // Função para resetar e tentar novamente
+  const resetAndRetry = () => {
+    console.log('🎵 Resetando e tentando novamente...')
+    setCurrentUrlIndex(0)
+    setError(null)
+    setIsLoading(true)
+    
+    if (fallbackUrls.length > 0) {
+      const firstUrl = fallbackUrls[0]
+      console.log(`🎵 Tentando primeira URL novamente: ${firstUrl.description}`)
+      setMediaUrl(firstUrl.url)
+    }
+  }
+
+  // Listener para eventos de erro de áudio
+  useEffect(() => {
+    const handleAudioLoadError = (event) => {
+      const { message: errorMessage, mediaUrl: errorUrl, retryCount } = event.detail
+      
+      console.log('🎵 Evento de erro de áudio recebido:', {
+        message: errorMessage,
+        url: errorUrl,
+        retryCount
+      })
+      
+      // Se o erro é da URL atual e temos URLs de fallback, tentar próxima
+      if (errorUrl === mediaUrl && fallbackUrls.length > 0) {
+        console.log('🎵 Tentando próxima URL de fallback automaticamente...')
+        tryNextFallbackUrl()
+      }
+    }
+
+    window.addEventListener('audioLoadError', handleAudioLoadError)
+    
+    return () => {
+      window.removeEventListener('audioLoadError', handleAudioLoadError)
+    }
+  }, [mediaUrl, fallbackUrls])
+
+  // Processar mensagem de áudio - COMPLETAMENTE REFATORADO
   const processAudioMessage = (audioMessage) => {
     console.log('🎵 Processando áudio:', audioMessage)
     
-    let url = null
+    // Array de estratégias de URL em ordem de prioridade
+    const audioUrlStrategies = []
     
     // Verificar se temos dados de áudio válidos
     if (!audioMessage) {
@@ -152,51 +218,132 @@ export const MediaProcessor = ({ message }) => {
       return
     }
     
-    // Prioridade 1: NOVO ENDPOINT DE MAPEAMENTO INTELIGENTE POR HASH
-    if (message.id) {
-      url = `http://localhost:8000/api/audio/hash-mapping/${message.id}/`
-      console.log('🎵 URL de mapeamento inteligente por hash:', url)
+    // ESTRATÉGIA 1: URL da nova estrutura de chat_id (backend modificado)
+    if (message.media_url) {
+      if (message.media_url.startsWith('/media/whatsapp_media/') || 
+          message.media_url.startsWith('/api/whatsapp-media/')) {
+        const url = message.media_url.startsWith('/api/') 
+          ? `http://localhost:8000${message.media_url}` 
+          : `http://localhost:8000/api${message.media_url}`
+        audioUrlStrategies.push({
+          priority: 1,
+          url: url,
+          description: 'Nova estrutura de chat_id'
+        })
+      }
     }
-    // Prioridade 2: URL da nova estrutura de chat_id (backend modificado)
-    else if (message.media_url && (message.media_url.startsWith('/media/whatsapp_media/') || message.media_url.startsWith('/api/whatsapp-media/'))) {
-      url = message.media_url.startsWith('/api/') ? `http://localhost:8000${message.media_url}` : `http://localhost:8000/api${message.media_url}`
-      console.log('🎵 URL da nova estrutura:', url)
-    }
-    // Prioridade 3: Conteúdo já é a URL local (serializer modificado)
-    else if (message.conteudo && typeof message.conteudo === 'string' && (message.conteudo.startsWith('/media/') || message.conteudo.startsWith('/api/'))) {
-      url = message.conteudo.startsWith('/api/') ? `http://localhost:8000${message.conteudo}` : `http://localhost:8000/api${message.conteudo}`
-      console.log('🎵 URL do conteúdo:', url)
-    }
-    // Prioridade 4: URL da pasta /wapi/midias/
-    else if (audioMessage.url && audioMessage.url.startsWith('/wapi/midias/')) {
-      const filename = audioMessage.url.split('/').pop()
-      url = `http://localhost:8000/api/wapi-media/audios/${filename}`
-      console.log('🎵 URL /wapi/midias/:', url)
-    }
-    // Prioridade 5: Nome do arquivo na pasta /wapi/midias/
-    else if (audioMessage.fileName) {
-      url = `http://localhost:8000/api/wapi-media/audios/${audioMessage.fileName}`
-      console.log('🎵 URL por fileName:', url)
-    }
-    // Prioridade 6: URL direta do JSON (WhatsApp)
-    else if (audioMessage.url && audioMessage.url.startsWith('http')) {
-      url = audioMessage.url
-      console.log('🎵 URL direta do WhatsApp:', url)
-    }
-    // Prioridade 7: Endpoint público por ID da mensagem (fallback)
-    else if (message.id) {
-      url = `http://localhost:8000/api/audio/message/${message.id}/public/`
-      console.log('🎵 URL fallback público por ID:', url)
     }
     
-    if (url) {
-      console.log('🎵 URL final do áudio:', url)
-      setMediaUrl(url)
+    // ESTRATÉGIA 2: Conteúdo já é a URL local (serializer modificado)
+    if (message.conteudo && typeof message.conteudo === 'string') {
+      if (message.conteudo.startsWith('/media/') || message.conteudo.startsWith('/api/')) {
+        const url = message.conteudo.startsWith('/api/') 
+          ? `http://localhost:8000${message.conteudo}` 
+          : `http://localhost:8000/api${message.conteudo}`
+        audioUrlStrategies.push({
+          priority: 2,
+          url: url,
+          description: 'URL do conteúdo'
+        })
+      }
+    }
+    
+    // ESTRATÉGIA 3: URL da pasta /wapi/midias/
+    if (audioMessage.url && audioMessage.url.startsWith('/wapi/midias/')) {
+      const filename = audioMessage.url.split('/').pop()
+      const url = `http://localhost:8000/api/wapi-media/audios/${filename}`
+      audioUrlStrategies.push({
+        priority: 3,
+        url: url,
+        description: 'Pasta /wapi/midias/'
+      })
+    }
+    
+    // ESTRATÉGIA 4: Nome do arquivo na pasta /wapi/midias/
+    if (audioMessage.fileName) {
+      const url = `http://localhost:8000/api/wapi-media/audios/${audioMessage.fileName}`
+      audioUrlStrategies.push({
+        priority: 4,
+        url: url,
+        description: 'fileName da pasta /wapi/midias/'
+      })
+    }
+    
+    // ESTRATÉGIA 5: URL direta do JSON (WhatsApp)
+    if (audioMessage.url && audioMessage.url.startsWith('http')) {
+      audioUrlStrategies.push({
+        priority: 5,
+        url: audioMessage.url,
+        description: 'URL direta do WhatsApp'
+      })
+    }
+    
+    // ESTRATÉGIA 6: Endpoint público por ID da mensagem
+    if (message.id) {
+      const url = `http://localhost:8000/api/audio/message/${message.id}/public/`
+      audioUrlStrategies.push({
+        priority: 6,
+        url: url,
+        description: 'Endpoint público por ID'
+      })
+    }
+    
+    // ESTRATÉGIA 7: Endpoint inteligente por chat_id e message_id
+    if (message.chat_id && (message.message_id || message.id)) {
+      const clienteId = 2 // Cliente Elizeu (hardcoded por enquanto)
+      const instanceId = '3B6XIW-ZTS923-GEAY6V' // Instance ID hardcoded
+      const chatId = message.chat_id
+      const messageId = message.message_id || message.id
+      
+      const url = `http://localhost:8000/api/whatsapp-audio-smart/${clienteId}/${instanceId}/${chatId}/${messageId}/`
+      audioUrlStrategies.push({
+        priority: 7,
+        url: url,
+        description: 'Endpoint inteligente por chat_id'
+      })
+    }
+    
+    // ESTRATÉGIA 8: Endpoint de mídia genérico
+    if (message.id) {
+      const url = `http://localhost:8000/api/media/message/${message.id}/`
+      audioUrlStrategies.push({
+        priority: 8,
+        url: url,
+        description: 'Endpoint de mídia genérico'
+      })
+    }
+    
+    // Ordenar estratégias por prioridade
+    audioUrlStrategies.sort((a, b) => a.priority - b.priority)
+    
+    console.log('🎵 Estratégias de URL encontradas:', audioUrlStrategies)
+    
+    if (audioUrlStrategies.length > 0) {
+      // Tentar a primeira estratégia (maior prioridade)
+      const primaryStrategy = audioUrlStrategies[0]
+      console.log(`🎵 Tentando estratégia ${primaryStrategy.priority}: ${primaryStrategy.description}`)
+      console.log(`🎵 URL: ${primaryStrategy.url}`)
+      
+      setMediaUrl(primaryStrategy.url)
       setIsLoading(false)
+      
+      // Se houver múltiplas estratégias, armazenar para fallback
+      if (audioUrlStrategies.length > 1) {
+        const fallbackStrategies = audioUrlStrategies.slice(1)
+        console.log('🎵 Estratégias de fallback disponíveis:', 
+          fallbackStrategies.map(s => `${s.priority}: ${s.description}`))
+        setFallbackUrls(fallbackStrategies)
+        setCurrentUrlIndex(0)
+      } else {
+        setFallbackUrls([])
+        setCurrentUrlIndex(0)
+      }
     } else {
-      console.log('🎵 Nenhuma URL de áudio encontrada')
+      console.log('🎵 Nenhuma estratégia de URL encontrada')
       setError('URL de áudio não disponível')
       setIsLoading(false)
+      setFallbackUrls([])
+      setCurrentUrlIndex(0)
     }
   }
 
@@ -375,20 +522,57 @@ export const MediaProcessor = ({ message }) => {
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-accent/50 border border-border rounded-lg p-3"
+          className="bg-accent/50 border border-border rounded-lg p-4"
         >
-          <div className="flex items-center gap-2">
-            <div className="p-1 bg-orange-500 rounded text-white">
-              <AlertTriangle className="w-4 h-4" />
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <div className="p-1 bg-orange-500 rounded text-white">
+                <AlertTriangle className="w-4 h-4" />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm text-foreground opacity-80">
+                  {message.tipo === 'audio' ? '[Áudio não disponível]' :
+                   message.tipo === 'image' || message.tipo === 'imagem' ? '[Imagem não disponível]' :
+                   message.tipo === 'video' ? '[Vídeo não disponível]' :
+                   message.tipo === 'document' || message.tipo === 'documento' ? '[Documento não disponível]' :
+                   '[Mídia não disponível]'}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {error}
+                </p>
+              </div>
             </div>
-            <div className="flex-1">
-              <p className="text-sm text-foreground opacity-80">
-                {message.tipo === 'audio' ? '[Áudio não disponível]' :
-                 message.tipo === 'image' || message.tipo === 'imagem' ? '[Imagem não disponível]' :
-                 message.tipo === 'video' ? '[Vídeo não disponível]' :
-                 message.tipo === 'document' || message.tipo === 'documento' ? '[Documento não disponível]' :
-                 '[Mídia não disponível]'}
-              </p>
+            
+            {/* Botões de ação */}
+            <div className="flex gap-2">
+              {/* Botão de retry */}
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={resetAndRetry}
+                className="px-3 py-1 bg-primary text-primary-foreground rounded text-sm"
+              >
+                Tentar Novamente
+              </motion.button>
+              
+              {/* Botão de próxima URL de fallback */}
+              {fallbackUrls.length > 0 && currentUrlIndex < fallbackUrls.length - 1 && (
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={tryNextFallbackUrl}
+                  className="px-3 py-1 bg-secondary text-secondary-foreground rounded text-sm"
+                >
+                  Próxima URL ({currentUrlIndex + 1}/{fallbackUrls.length})
+                </motion.button>
+              )}
+              
+              {/* Informações de debug */}
+              {fallbackUrls.length > 0 && (
+                <div className="text-xs text-muted-foreground ml-auto">
+                  {fallbackUrls.length} URLs de fallback disponíveis
+                </div>
+              )}
             </div>
           </div>
         </motion.div>
@@ -436,7 +620,7 @@ export const MediaProcessor = ({ message }) => {
   }
 }
 
-// Componente para exibir áudio
+// Componente para exibir áudio - COMPLETAMENTE REFATORADO
 const AudioPlayer = ({ message, mediaUrl }) => {
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -445,7 +629,20 @@ const AudioPlayer = ({ message, mediaUrl }) => {
   const [volume, setVolume] = useState(1)
   const [isMuted, setIsMuted] = useState(false)
   const [audioError, setAudioError] = useState(false)
+  const [audioLoaded, setAudioLoaded] = useState(false)
+  const [retryCount, setRetryCount] = useState(0)
   const audioRef = useRef(null)
+  
+  // Debug: monitorar mudanças na mediaUrl
+  useEffect(() => {
+    console.log('🎵 AudioPlayer - mediaUrl alterada:', mediaUrl)
+    if (mediaUrl) {
+      setAudioError(false)
+      setIsLoading(true)
+      setAudioLoaded(false)
+      setRetryCount(0)
+    }
+  }, [mediaUrl])
   
   // Extrair informações do audioMessage se disponível
   const getAudioInfo = () => {
@@ -457,45 +654,115 @@ const AudioPlayer = ({ message, mediaUrl }) => {
           return {
             seconds: parsed.audioMessage.seconds || 0,
             waveform: parsed.audioMessage.waveform,
-            fileSize: parsed.audioMessage.fileLength
+            fileSize: parsed.audioMessage.fileLength,
+            fileName: parsed.audioMessage.fileName
           }
         }
       }
     } catch (e) {
-      // Ignore parsing errors
+      console.warn('🎵 Erro ao extrair info do áudio:', e)
     }
     return null
   }
   
   const audioInfo = getAudioInfo()
 
+  // Gerenciar eventos do áudio de forma robusta
   useEffect(() => {
     const audio = audioRef.current
-    if (!audio) return
+    if (!audio || !mediaUrl) return
 
-    const updateTime = () => setCurrentTime(audio.currentTime)
-    const updateDuration = () => setDuration(audio.duration)
-    const handlePlay = () => setIsPlaying(true)
-    const handlePause = () => setIsPlaying(false)
-    const handleEnded = () => setIsPlaying(false)
-    const handleLoadedData = () => {
-      setIsLoading(false)
-      setDuration(audio.duration)
+    console.log('🎵 Configurando eventos do áudio para URL:', mediaUrl)
+
+    const updateTime = () => {
+      if (!isNaN(audio.currentTime)) {
+        setCurrentTime(audio.currentTime)
+      }
     }
-    const handleError = () => {
+    
+    const updateDuration = () => {
+      if (!isNaN(audio.duration) && audio.duration > 0) {
+        console.log('🎵 Duração do áudio carregada:', audio.duration)
+        setDuration(audio.duration)
+      }
+    }
+    
+    const handlePlay = () => {
+      console.log('🎵 Áudio iniciou reprodução')
+      setIsPlaying(true)
+    }
+    
+    const handlePause = () => {
+      console.log('🎵 Áudio pausado')
+      setIsPlaying(false)
+    }
+    
+    const handleEnded = () => {
+      console.log('🎵 Áudio terminou')
+      setIsPlaying(false)
+      setCurrentTime(0)
+    }
+    
+    const handleLoadedData = () => {
+      console.log('🎵 Dados do áudio carregados')
+      setIsLoading(false)
+      setAudioLoaded(true)
+      setAudioError(false)
+      
+      if (!isNaN(audio.duration) && audio.duration > 0) {
+        setDuration(audio.duration)
+      }
+    }
+    
+    const handleCanPlay = () => {
+      console.log('🎵 Áudio pode ser reproduzido')
+      setIsLoading(false)
+      setAudioLoaded(true)
+      setAudioError(false)
+    }
+    
+    const handleError = (e) => {
+      console.error('🎵 Erro ao carregar áudio:', e)
+      console.error('🎵 Detalhes do erro:', {
+        error: audio.error,
+        networkState: audio.networkState,
+        readyState: audio.readyState,
+        src: audio.src
+      })
       setIsLoading(false)
       setAudioError(true)
-      console.error('Erro ao carregar áudio:', mediaUrl)
+      setAudioLoaded(false)
+      
+      // Incrementar contador de tentativas
+      setRetryCount(prev => prev + 1)
+    }
+    
+    const handleLoadStart = () => {
+      console.log('🎵 Iniciando carregamento do áudio')
+      setIsLoading(true)
+      setAudioError(false)
+    }
+    
+    const handleProgress = () => {
+      if (audio.buffered.length > 0) {
+        const bufferedEnd = audio.buffered.end(audio.buffered.length - 1)
+        console.log('🎵 Progresso do buffer:', bufferedEnd, 'de', audio.duration)
+      }
     }
 
+    // Adicionar todos os event listeners
     audio.addEventListener('timeupdate', updateTime)
     audio.addEventListener('loadedmetadata', updateDuration)
     audio.addEventListener('play', handlePlay)
     audio.addEventListener('pause', handlePause)
     audio.addEventListener('ended', handleEnded)
     audio.addEventListener('loadeddata', handleLoadedData)
+    audio.addEventListener('canplay', handleCanPlay)
     audio.addEventListener('error', handleError)
+    audio.addEventListener('loadstart', handleLoadStart)
+    audio.addEventListener('progress', handleProgress)
 
+    // Cleanup function
     return () => {
       audio.removeEventListener('timeupdate', updateTime)
       audio.removeEventListener('loadedmetadata', updateDuration)
@@ -503,38 +770,59 @@ const AudioPlayer = ({ message, mediaUrl }) => {
       audio.removeEventListener('pause', handlePause)
       audio.removeEventListener('ended', handleEnded)
       audio.removeEventListener('loadeddata', handleLoadedData)
+      audio.removeEventListener('canplay', handleCanPlay)
       audio.removeEventListener('error', handleError)
+      audio.removeEventListener('loadstart', handleLoadStart)
+      audio.removeEventListener('progress', handleProgress)
     }
   }, [mediaUrl])
 
-  const togglePlay = () => {
-    if (audioRef.current) {
+  // Função robusta para play/pause
+  const togglePlay = async () => {
+    if (!audioRef.current || !audioLoaded) {
+      console.warn('🎵 Áudio não está pronto para reprodução')
+      return
+    }
+
+    try {
       if (isPlaying) {
         audioRef.current.pause()
       } else {
-        audioRef.current.play().catch(error => {
-          console.error('Erro ao reproduzir áudio:', error)
-        })
+        // Verificar se o áudio está carregado
+        if (audioRef.current.readyState >= 2) { // HAVE_CURRENT_DATA
+          await audioRef.current.play()
+        } else {
+          console.warn('🎵 Áudio não está carregado o suficiente para reprodução')
+          setIsLoading(true)
+        }
+      }
+    } catch (error) {
+      console.error('🎵 Erro ao controlar reprodução:', error)
+      setAudioError(true)
+    }
+  }
+
+  // Função robusta para slider de progresso
+  const handleSliderChange = (value) => {
+    if (audioRef.current && duration > 0 && audioLoaded) {
+      const newTime = (value[0] / 100) * duration
+      if (!isNaN(newTime) && newTime >= 0 && newTime <= duration) {
+        audioRef.current.currentTime = newTime
+        setCurrentTime(newTime)
       }
     }
   }
 
-  const handleSliderChange = (value) => {
-    if (audioRef.current && duration > 0) {
-      const newTime = (value[0] / 100) * duration
-      audioRef.current.currentTime = newTime
-      setCurrentTime(newTime)
-    }
-  }
-
+  // Função robusta para controle de volume
   const handleVolumeChange = (value) => {
-    const newVolume = value[0] / 100
+    const newVolume = Math.max(0, Math.min(1, value[0] / 100))
     setVolume(newVolume)
     if (audioRef.current) {
       audioRef.current.volume = newVolume
     }
   }
 
+  // Função robusta para mute
   const toggleMute = () => {
     if (audioRef.current) {
       if (isMuted) {
@@ -547,14 +835,118 @@ const AudioPlayer = ({ message, mediaUrl }) => {
     }
   }
 
+  // Função para formatar tempo
   const formatTime = (time) => {
+    if (!time || isNaN(time)) return '00:00'
     const minutes = Math.floor(time / 60)
     const seconds = Math.floor(time % 60)
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
   }
 
+  // Calcular valores dos sliders
   const sliderValue = duration > 0 ? [(currentTime / duration) * 100] : [0]
   const volumeValue = [volume * 100]
+
+  // Debug: mostrar estado atual
+  console.log('🎵 AudioPlayer - Estado atual:', {
+    isLoading,
+    audioLoaded,
+    audioError,
+    isPlaying,
+    currentTime,
+    duration,
+    mediaUrl,
+    retryCount
+  })
+
+  // Se não há URL de áudio, mostrar erro
+  if (!mediaUrl) {
+    return (
+      <div className="space-y-2">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-accent/50 border border-border rounded-lg p-4"
+        >
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-red-500 rounded-lg text-white">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div className="flex-1">
+              <p className="font-medium text-foreground">URL de áudio não disponível</p>
+              <p className="text-xs text-muted-foreground">
+                Não foi possível obter o link para este áudio
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    )
+  }
+
+  // Se há erro no carregamento, mostrar mensagem de erro com opções de retry
+  if (audioError) {
+    return (
+      <div className="space-y-2">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-accent/50 border border-border rounded-lg p-4"
+        >
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-red-500 rounded-lg text-white">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <p className="font-medium text-foreground">Erro ao carregar áudio</p>
+                <p className="text-xs text-muted-foreground">
+                  Não foi possível reproduzir este áudio. Tentativas: {retryCount}
+                </p>
+              </div>
+            </div>
+            
+            {/* Botões de ação */}
+            <div className="flex gap-2">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => {
+                  setAudioError(false)
+                  setIsLoading(true)
+                  setAudioLoaded(false)
+                  // Recarregar o áudio
+                  if (audioRef.current) {
+                    audioRef.current.load()
+                  }
+                }}
+                className="px-3 py-1 bg-primary text-primary-foreground rounded text-sm"
+              >
+                Tentar Novamente
+              </motion.button>
+              
+              {retryCount >= 3 && (
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => {
+                    // Emitir evento para o componente pai tentar próxima URL
+                    const event = new CustomEvent('audioLoadError', {
+                      detail: { message, mediaUrl, retryCount }
+                    })
+                    window.dispatchEvent(event)
+                  }}
+                  className="px-3 py-1 bg-secondary text-secondary-foreground rounded text-sm"
+                >
+                  Tentar URL Alternativa
+                </motion.button>
+              )}
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-2">
@@ -569,7 +961,7 @@ const AudioPlayer = ({ message, mediaUrl }) => {
         </motion.p>
       )}
       
-      {/* Player de áudio melhorado */}
+      {/* Player de áudio robusto */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -583,24 +975,24 @@ const AudioPlayer = ({ message, mediaUrl }) => {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={togglePlay}
-              disabled={isLoading || audioError}
+              disabled={isLoading || !audioLoaded}
               className={`p-3 rounded-full shadow-sm transition-colors ${
                 isLoading 
                   ? 'bg-muted text-muted-foreground cursor-not-allowed'
-                  : audioError
-                  ? 'bg-red-500/20 text-red-500 cursor-not-allowed'
+                  : !audioLoaded
+                  ? 'bg-yellow-500/20 text-yellow-500 cursor-not-allowed'
                   : 'bg-primary text-primary-foreground hover:bg-primary/90'
               }`}
               title={
                 isLoading ? 'Carregando...' : 
-                audioError ? 'Áudio não disponível' :
+                !audioLoaded ? 'Áudio não carregado' :
                 (isPlaying ? 'Pausar' : 'Reproduzir')
               }
             >
               {isLoading ? (
                 <Loader2 className="w-6 h-6 animate-spin" />
-              ) : audioError ? (
-                <AlertTriangle className="w-6 h-6" />
+              ) : !audioLoaded ? (
+                <Clock className="w-6 h-6" />
               ) : isPlaying ? (
                 <Pause className="w-6 h-6" />
               ) : (
@@ -611,11 +1003,11 @@ const AudioPlayer = ({ message, mediaUrl }) => {
             {/* Informações do áudio */}
             <div className="flex-1 min-w-0">
               <p className="font-medium text-foreground truncate">
-                {message.filename || 'Áudio'}
+                {audioInfo?.fileName || message.filename || 'Áudio'}
               </p>
               <p className="text-xs text-muted-foreground">
                 {isLoading ? 'Carregando...' : 
-                 audioError ? (audioInfo ? `${formatTime(audioInfo.seconds)} - Arquivo não disponível` : 'Arquivo não disponível') :
+                 !audioLoaded ? 'Preparando...' :
                  (message.duration || (audioInfo ? formatTime(audioInfo.seconds) : formatTime(duration)))}
               </p>
               {audioInfo && audioInfo.fileSize && (
@@ -678,7 +1070,7 @@ const AudioPlayer = ({ message, mediaUrl }) => {
           </div>
           
           {/* Slider de progresso */}
-          {!isLoading && (
+          {audioLoaded && (
             <div className="space-y-2">
               <Slider
                 value={sliderValue}
@@ -696,15 +1088,23 @@ const AudioPlayer = ({ message, mediaUrl }) => {
           )}
         </div>
         
-        {/* Player de áudio oculto para funcionalidade */}
+        {/* Player de áudio HTML5 oculto */}
         <audio 
           ref={audioRef}
           className="hidden"
           preload="metadata"
           src={mediaUrl}
+          crossOrigin="anonymous"
+          onLoadStart={() => console.log('🎵 Áudio iniciando carregamento')}
+          onCanPlay={() => console.log('🎵 Áudio pode ser reproduzido')}
+          onLoadedData={() => console.log('🎵 Dados do áudio carregados')}
           onError={(e) => {
-            console.error('Erro ao carregar áudio:', e)
-            setIsLoading(false)
+            console.error('🎵 Erro no elemento audio:', e)
+            console.error('🎵 Detalhes do erro:', {
+              error: e.target.error,
+              networkState: e.target.networkState,
+              readyState: e.target.readyState
+            })
           }}
         />
       </motion.div>
