@@ -74,27 +74,27 @@ export const MediaProcessor = ({ message }) => {
         if (messageType === 'audio' || messageType === 'Audio') {
           console.log('🎵 Tipo áudio detectado pelo campo tipo')
           setMediaType(MediaType.AUDIO)
-          processAudioMessage(content)
+          processAudioMessage(content, message, setMediaUrl, setIsLoading, setError, setFallbackUrls, setCurrentUrlIndex)
           return
         } else if (messageType === 'image' || messageType === 'imagem') {
           console.log('🖼️ Tipo imagem detectado pelo campo tipo')
           setMediaType(MediaType.IMAGE)
-          processImageMessage(content)
+          processImageMessage(content, message, setMediaUrl, setIsLoading, setError)
           return
         } else if (messageType === 'video') {
           console.log('🎬 Tipo vídeo detectado pelo campo tipo')
           setMediaType(MediaType.VIDEO)
-          processVideoMessage(content)
+          processVideoMessage(content, message, setMediaUrl, setIsLoading, setError)
           return
         } else if (messageType === 'sticker') {
           console.log('😀 Tipo sticker detectado pelo campo tipo')
           setMediaType(MediaType.STICKER)
-          processStickerMessage(content)
+          processStickerMessage(content, message, setMediaUrl, setIsLoading, setError)
           return
         } else if (messageType === 'document' || messageType === 'documento') {
           console.log('📄 Tipo documento detectado pelo campo tipo')
           setMediaType(MediaType.DOCUMENT)
-          processDocumentMessage(content)
+          processDocumentMessage(content, message, setMediaUrl, setIsLoading, setError)
           return
         }
       }
@@ -104,27 +104,27 @@ export const MediaProcessor = ({ message }) => {
         if (content.audioMessage) {
           console.log('🎵 Tipo áudio detectado pelo conteúdo JSON')
           setMediaType(MediaType.AUDIO)
-          processAudioMessage(content.audioMessage)
+          processAudioMessage(content.audioMessage, message, setMediaUrl, setIsLoading, setError, setFallbackUrls, setCurrentUrlIndex)
           return
         } else if (content.imageMessage) {
           console.log('🖼️ Tipo imagem detectado pelo conteúdo JSON')
           setMediaType(MediaType.IMAGE)
-          processImageMessage(content.imageMessage)
+          processImageMessage(content.imageMessage, message, setMediaUrl, setIsLoading, setError)
           return
         } else if (content.videoMessage) {
           console.log('🎬 Tipo vídeo detectado pelo conteúdo JSON')
           setMediaType(MediaType.VIDEO)
-          processVideoMessage(content.videoMessage)
+          processVideoMessage(content.videoMessage, message, setMediaUrl, setIsLoading, setError)
           return
         } else if (content.stickerMessage) {
           console.log('😀 Tipo sticker detectado pelo conteúdo JSON')
           setMediaType(MediaType.STICKER)
-          processStickerMessage(content.stickerMessage)
+          processStickerMessage(content.stickerMessage, message, setMediaUrl, setIsLoading, setError)
           return
         } else if (content.documentMessage) {
           console.log('📄 Tipo documento detectado pelo conteúdo JSON')
           setMediaType(MediaType.DOCUMENT)
-          processDocumentMessage(content.documentMessage)
+          processDocumentMessage(content.documentMessage, message, setMediaUrl, setIsLoading, setError)
           return
         }
       }
@@ -202,318 +202,6 @@ export const MediaProcessor = ({ message }) => {
       window.removeEventListener('audioLoadError', handleAudioLoadError)
     }
   }, [mediaUrl, fallbackUrls])
-
-  // Processar mensagem de áudio - COMPLETAMENTE REFATORADO
-  const processAudioMessage = (audioMessage) => {
-    console.log('🎵 Processando áudio:', audioMessage)
-    
-    // Array de estratégias de URL em ordem de prioridade
-    const audioUrlStrategies = []
-    
-    // Verificar se temos dados de áudio válidos
-    if (!audioMessage) {
-      console.log('🎵 Nenhum audioMessage fornecido')
-      setError('Dados de áudio não encontrados')
-      setIsLoading(false)
-      return
-    }
-    
-    // ESTRATÉGIA 1: URL da nova estrutura de chat_id (backend modificado)
-    if (message.media_url) {
-      if (message.media_url.startsWith('/media/whatsapp_media/') || 
-          message.media_url.startsWith('/api/whatsapp-media/')) {
-        const url = message.media_url.startsWith('/api/') 
-          ? `http://localhost:8000${message.media_url}` 
-          : `http://localhost:8000/api${message.media_url}`
-        audioUrlStrategies.push({
-          priority: 1,
-          url: url,
-          description: 'Nova estrutura de chat_id'
-        })
-      }
-    }
-    }
-    
-    // ESTRATÉGIA 2: Conteúdo já é a URL local (serializer modificado)
-    if (message.conteudo && typeof message.conteudo === 'string') {
-      if (message.conteudo.startsWith('/media/') || message.conteudo.startsWith('/api/')) {
-        const url = message.conteudo.startsWith('/api/') 
-          ? `http://localhost:8000${message.conteudo}` 
-          : `http://localhost:8000/api${message.conteudo}`
-        audioUrlStrategies.push({
-          priority: 2,
-          url: url,
-          description: 'URL do conteúdo'
-        })
-      }
-    }
-    
-    // ESTRATÉGIA 3: URL da pasta /wapi/midias/
-    if (audioMessage.url && audioMessage.url.startsWith('/wapi/midias/')) {
-      const filename = audioMessage.url.split('/').pop()
-      const url = `http://localhost:8000/api/wapi-media/audios/${filename}`
-      audioUrlStrategies.push({
-        priority: 3,
-        url: url,
-        description: 'Pasta /wapi/midias/'
-      })
-    }
-    
-    // ESTRATÉGIA 4: Nome do arquivo na pasta /wapi/midias/
-    if (audioMessage.fileName) {
-      const url = `http://localhost:8000/api/wapi-media/audios/${audioMessage.fileName}`
-      audioUrlStrategies.push({
-        priority: 4,
-        url: url,
-        description: 'fileName da pasta /wapi/midias/'
-      })
-    }
-    
-    // ESTRATÉGIA 5: URL direta do JSON (WhatsApp)
-    if (audioMessage.url && audioMessage.url.startsWith('http')) {
-      audioUrlStrategies.push({
-        priority: 5,
-        url: audioMessage.url,
-        description: 'URL direta do WhatsApp'
-      })
-    }
-    
-    // ESTRATÉGIA 6: Endpoint público por ID da mensagem
-    if (message.id) {
-      const url = `http://localhost:8000/api/audio/message/${message.id}/public/`
-      audioUrlStrategies.push({
-        priority: 6,
-        url: url,
-        description: 'Endpoint público por ID'
-      })
-    }
-    
-    // ESTRATÉGIA 7: Endpoint inteligente por chat_id e message_id
-    if (message.chat_id && (message.message_id || message.id)) {
-      const clienteId = 2 // Cliente Elizeu (hardcoded por enquanto)
-      const instanceId = '3B6XIW-ZTS923-GEAY6V' // Instance ID hardcoded
-      const chatId = message.chat_id
-      const messageId = message.message_id || message.id
-      
-      const url = `http://localhost:8000/api/whatsapp-audio-smart/${clienteId}/${instanceId}/${chatId}/${messageId}/`
-      audioUrlStrategies.push({
-        priority: 7,
-        url: url,
-        description: 'Endpoint inteligente por chat_id'
-      })
-    }
-    
-    // ESTRATÉGIA 8: Endpoint de mídia genérico
-    if (message.id) {
-      const url = `http://localhost:8000/api/media/message/${message.id}/`
-      audioUrlStrategies.push({
-        priority: 8,
-        url: url,
-        description: 'Endpoint de mídia genérico'
-      })
-    }
-    
-    // Ordenar estratégias por prioridade
-    audioUrlStrategies.sort((a, b) => a.priority - b.priority)
-    
-    console.log('🎵 Estratégias de URL encontradas:', audioUrlStrategies)
-    
-    if (audioUrlStrategies.length > 0) {
-      // Tentar a primeira estratégia (maior prioridade)
-      const primaryStrategy = audioUrlStrategies[0]
-      console.log(`🎵 Tentando estratégia ${primaryStrategy.priority}: ${primaryStrategy.description}`)
-      console.log(`🎵 URL: ${primaryStrategy.url}`)
-      
-      setMediaUrl(primaryStrategy.url)
-      setIsLoading(false)
-      
-      // Se houver múltiplas estratégias, armazenar para fallback
-      if (audioUrlStrategies.length > 1) {
-        const fallbackStrategies = audioUrlStrategies.slice(1)
-        console.log('🎵 Estratégias de fallback disponíveis:', 
-          fallbackStrategies.map(s => `${s.priority}: ${s.description}`))
-        setFallbackUrls(fallbackStrategies)
-        setCurrentUrlIndex(0)
-      } else {
-        setFallbackUrls([])
-        setCurrentUrlIndex(0)
-      }
-    } else {
-      console.log('🎵 Nenhuma estratégia de URL encontrada')
-      setError('URL de áudio não disponível')
-      setIsLoading(false)
-      setFallbackUrls([])
-      setCurrentUrlIndex(0)
-    }
-  }
-
-  // Processar mensagem de imagem
-  const processImageMessage = (imageMessage) => {
-    console.log('🖼️ Processando imagem:', imageMessage)
-    
-    let url = null
-    
-    // Prioridade 1: URL da nova estrutura de chat_id (backend modificado)
-    if (message.media_url && (message.media_url.startsWith('/media/whatsapp_media/') || message.media_url.startsWith('/api/whatsapp-media/'))) {
-      url = message.media_url.startsWith('/api/') ? `http://localhost:8000${message.media_url}` : `http://localhost:8000/api${message.media_url}`
-      console.log('🖼️ URL da nova estrutura:', url)
-    }
-    // Prioridade 2: Conteúdo já é a URL local (serializer modificado)
-    else if ((message.conteudo || message.content) && 
-             (typeof (message.conteudo || message.content) === 'string') &&
-             ((message.conteudo || message.content).startsWith('/media/whatsapp_media/') || 
-              (message.conteudo || message.content).startsWith('/api/whatsapp-media/'))) {
-      const contentUrl = message.conteudo || message.content
-      url = contentUrl.startsWith('/api/') ? `http://localhost:8000${contentUrl}` : `http://localhost:8000/api${contentUrl}`
-      console.log('🖼️ URL do conteúdo processado:', url)
-    }
-    // Prioridade 3: URL da pasta /wapi/midias/
-    else if (imageMessage.url && imageMessage.url.startsWith('/wapi/midias/')) {
-      const filename = imageMessage.url.split('/').pop()
-      url = `http://localhost:8000/api/wapi-media/imagens/${filename}`
-    }
-    // Prioridade 4: URL direta do JSON
-    else if (imageMessage.url) {
-      url = imageMessage.url
-    }
-    // Prioridade 5: Tentar construir URL baseada no message_id
-    else if (message.id) {
-      // Tentar diferentes extensões comuns
-      const extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp']
-      for (const ext of extensions) {
-        const testUrl = `http://localhost:8000/api/wapi-media/imagens/${message.id}.${ext}`
-        // Aqui poderíamos fazer uma verificação prévia, mas por enquanto vamos usar a primeira
-        url = testUrl
-        break
-      }
-    }
-    // Fallback: usar endpoint da API
-    else if (message.id) {
-      url = `http://localhost:8000/api/image/message/${message.id}/`
-    }
-
-    if (url) {
-      setMediaUrl(url)
-      setIsLoading(false)
-    } else {
-      setError('Não foi possível obter URL da imagem')
-      setIsLoading(false)
-    }
-  }
-
-  // Processar mensagem de vídeo
-  const processVideoMessage = (videoMessage) => {
-    console.log('🎬 Processando vídeo:', videoMessage)
-    
-    let url = null
-    
-    // Prioridade 1: URL da pasta /wapi/midias/
-    if (videoMessage.url && videoMessage.url.startsWith('/wapi/midias/')) {
-      const filename = videoMessage.url.split('/').pop()
-      url = `http://localhost:8000/api/wapi-media/videos/${filename}`
-    }
-    // Prioridade 2: URL direta do JSON
-    else if (videoMessage.url) {
-      url = videoMessage.url
-    }
-    // Prioridade 3: Tentar construir URL baseada no message_id
-    else if (message.id) {
-      const extensions = ['mp4', 'webm', 'avi']
-      for (const ext of extensions) {
-        const testUrl = `http://localhost:8000/api/wapi-media/videos/${message.id}.${ext}`
-        url = testUrl
-        break
-      }
-    }
-    // Fallback: usar endpoint da API
-    else if (message.id) {
-      url = `http://localhost:8000/api/video/message/${message.id}/`
-    }
-
-    if (url) {
-      setMediaUrl(url)
-      setIsLoading(false)
-    } else {
-      setError('Não foi possível obter URL do vídeo')
-      setIsLoading(false)
-    }
-  }
-
-  // Processar mensagem de sticker
-  const processStickerMessage = (stickerMessage) => {
-    console.log('😀 Processando sticker:', stickerMessage)
-    
-    let url = null
-    
-    // Prioridade 1: URL da pasta /wapi/midias/
-    if (stickerMessage.url && stickerMessage.url.startsWith('/wapi/midias/')) {
-      const filename = stickerMessage.url.split('/').pop()
-      url = `http://localhost:8000/api/wapi-media/stickers/${filename}`
-    }
-    // Prioridade 2: URL direta do JSON
-    else if (stickerMessage.url) {
-      url = stickerMessage.url
-    }
-    // Prioridade 3: Tentar construir URL baseada no message_id
-    else if (message.id) {
-      const extensions = ['webp', 'gif', 'png']
-      for (const ext of extensions) {
-        const testUrl = `http://localhost:8000/api/wapi-media/stickers/${message.id}.${ext}`
-        url = testUrl
-        break
-      }
-    }
-    // Fallback: usar endpoint da API
-    else if (message.id) {
-      url = `http://localhost:8000/api/sticker/message/${message.id}/`
-    }
-
-    if (url) {
-      setMediaUrl(url)
-      setIsLoading(false)
-    } else {
-      setError('Não foi possível obter URL do sticker')
-      setIsLoading(false)
-    }
-  }
-
-  // Processar mensagem de documento
-  const processDocumentMessage = (documentMessage) => {
-    console.log('📄 Processando documento:', documentMessage)
-    
-    let url = null
-    
-    // Prioridade 1: URL da pasta /wapi/midias/
-    if (documentMessage.url && documentMessage.url.startsWith('/wapi/midias/')) {
-      const filename = documentMessage.url.split('/').pop()
-      url = `http://localhost:8000/api/wapi-media/documentos/${filename}`
-    }
-    // Prioridade 2: URL direta do JSON
-    else if (documentMessage.url) {
-      url = documentMessage.url
-    }
-    // Prioridade 3: Tentar construir URL baseada no message_id
-    else if (message.id) {
-      const extensions = ['pdf', 'doc', 'docx', 'txt']
-      for (const ext of extensions) {
-        const testUrl = `http://localhost:8000/api/wapi-media/documentos/${message.id}.${ext}`
-        url = testUrl
-        break
-      }
-    }
-    // Fallback: usar endpoint da API
-    else if (message.id) {
-      url = `http://localhost:8000/api/document/message/${message.id}/`
-    }
-
-    if (url) {
-      setMediaUrl(url)
-      setIsLoading(false)
-    } else {
-      setError('Não foi possível obter URL do documento')
-      setIsLoading(false)
-    }
-  }
 
   // Renderizar erro
   if (error) {
@@ -617,6 +305,317 @@ export const MediaProcessor = ({ message }) => {
       return <DocumentDisplay message={message} mediaUrl={mediaUrl} />
     default:
       return null
+  }
+}
+
+// Funções de processamento de mídia
+const processAudioMessage = (audioMessage, message, setMediaUrl, setIsLoading, setError, setFallbackUrls, setCurrentUrlIndex) => {
+  console.log('🎵 Processando áudio:', audioMessage)
+  
+  // Array de estratégias de URL em ordem de prioridade
+  const audioUrlStrategies = []
+  
+  // Verificar se temos dados de áudio válidos
+  if (!audioMessage) {
+    console.log('🎵 Nenhum audioMessage fornecido')
+    setError('Dados de áudio não encontrados')
+    setIsLoading(false)
+    return
+  }
+  
+  // ESTRATÉGIA 1: URL da nova estrutura de chat_id (backend modificado)
+  if (message.media_url) {
+    if (message.media_url.startsWith('/media/whatsapp_media/') || 
+        message.media_url.startsWith('/api/whatsapp-media/')) {
+      const url = message.media_url.startsWith('/api/') 
+        ? `http://localhost:8000${message.media_url}` 
+        : `http://localhost:8000/api${message.media_url}`
+      audioUrlStrategies.push({
+        priority: 1,
+        url: url,
+        description: 'Nova estrutura de chat_id'
+      })
+    }
+  }
+  
+  // ESTRATÉGIA 2: Conteúdo já é a URL local (serializer modificado)
+  if (message.conteudo && typeof message.conteudo === 'string') {
+    if (message.conteudo.startsWith('/media/') || message.conteudo.startsWith('/api/')) {
+      const url = message.conteudo.startsWith('/api/') 
+        ? `http://localhost:8000${message.conteudo}` 
+        : `http://localhost:8000/api${message.conteudo}`
+      audioUrlStrategies.push({
+        priority: 2,
+        url: url,
+        description: 'URL do conteúdo'
+      })
+    }
+  }
+  
+  // ESTRATÉGIA 3: URL da pasta /wapi/midias/
+  if (audioMessage.url && audioMessage.url.startsWith('/wapi/midias/')) {
+    const filename = audioMessage.url.split('/').pop()
+    const url = `http://localhost:8000/api/wapi-media/audios/${filename}`
+    audioUrlStrategies.push({
+      priority: 3,
+      url: url,
+      description: 'Pasta /wapi/midias/'
+    })
+  }
+  
+  // ESTRATÉGIA 4: Nome do arquivo na pasta /wapi/midias/
+  if (audioMessage.fileName) {
+    const url = `http://localhost:8000/api/wapi-media/audios/${audioMessage.fileName}`
+    audioUrlStrategies.push({
+      priority: 4,
+      url: url,
+      description: 'fileName da pasta /wapi/midias/'
+    })
+  }
+  
+  // ESTRATÉGIA 5: URL direta do JSON (WhatsApp)
+  if (audioMessage.url && audioMessage.url.startsWith('http')) {
+    audioUrlStrategies.push({
+      priority: 5,
+      url: audioMessage.url,
+      description: 'URL direta do WhatsApp'
+    })
+  }
+  
+  // ESTRATÉGIA 6: Endpoint público por ID da mensagem
+  if (message.id) {
+    const url = `http://localhost:8000/api/audio/message/${message.id}/public/`
+    audioUrlStrategies.push({
+      priority: 6,
+      url: url,
+      description: 'Endpoint público por ID'
+    })
+  }
+  
+  // ESTRATÉGIA 7: Endpoint inteligente por chat_id e message_id
+  if (message.chat_id && (message.message_id || message.id)) {
+    const clienteId = 2 // Cliente Elizeu (hardcoded por enquanto)
+    const instanceId = '3B6XIW-ZTS923-GEAY6V' // Instance ID hardcoded
+    const chatId = message.chat_id
+    const messageId = message.message_id || message.id
+    
+    const url = `http://localhost:8000/api/whatsapp-audio-smart/${clienteId}/${instanceId}/${chatId}/${messageId}/`
+    audioUrlStrategies.push({
+      priority: 7,
+      url: url,
+      description: 'Endpoint inteligente por chat_id'
+    })
+  }
+  
+  // ESTRATÉGIA 8: Endpoint de mídia genérico
+  if (message.id) {
+    const url = `http://localhost:8000/api/media/message/${message.id}/`
+    audioUrlStrategies.push({
+      priority: 8,
+      url: url,
+      description: 'Endpoint de mídia genérico'
+    })
+  }
+  
+  // Ordenar estratégias por prioridade
+  audioUrlStrategies.sort((a, b) => a.priority - b.priority)
+  
+  console.log('🎵 Estratégias de URL encontradas:', audioUrlStrategies)
+  
+  if (audioUrlStrategies.length > 0) {
+    // Tentar a primeira estratégia (maior prioridade)
+    const primaryStrategy = audioUrlStrategies[0]
+    console.log(`🎵 Tentando estratégia ${primaryStrategy.priority}: ${primaryStrategy.description}`)
+    console.log(`🎵 URL: ${primaryStrategy.url}`)
+    
+    setMediaUrl(primaryStrategy.url)
+    setIsLoading(false)
+    
+    // Se houver múltiplas estratégias, armazenar para fallback
+    if (audioUrlStrategies.length > 1) {
+      const fallbackStrategies = audioUrlStrategies.slice(1)
+      console.log('🎵 Estratégias de fallback disponíveis:', 
+        fallbackStrategies.map(s => `${s.priority}: ${s.description}`))
+      setFallbackUrls(fallbackStrategies)
+      setCurrentUrlIndex(0)
+    } else {
+      setFallbackUrls([])
+      setCurrentUrlIndex(0)
+    }
+  } else {
+    console.log('🎵 Nenhuma estratégia de URL encontrada')
+    setError('URL de áudio não disponível')
+    setIsLoading(false)
+    setFallbackUrls([])
+    setCurrentUrlIndex(0)
+  }
+}
+
+// Processar mensagem de imagem
+const processImageMessage = (imageMessage, message, setMediaUrl, setIsLoading, setError) => {
+  console.log('🖼️ Processando imagem:', imageMessage)
+  
+  let url = null
+  
+  // Prioridade 1: URL da nova estrutura de chat_id (backend modificado)
+  if (message.media_url && (message.media_url.startsWith('/media/whatsapp_media/') || message.media_url.startsWith('/api/whatsapp-media/'))) {
+    url = message.media_url.startsWith('/api/') ? `http://localhost:8000${message.media_url}` : `http://localhost:8000/api${message.media_url}`
+    console.log('🖼️ URL da nova estrutura:', url)
+  }
+  // Prioridade 2: Conteúdo já é a URL local (serializer modificado)
+  else if ((message.conteudo || message.content) && 
+           (typeof (message.conteudo || message.content) === 'string') &&
+           ((message.conteudo || message.content).startsWith('/media/whatsapp_media/') || 
+            (message.conteudo || message.content).startsWith('/api/whatsapp-media/'))) {
+    const contentUrl = message.conteudo || message.content
+    url = contentUrl.startsWith('/api/') ? `http://localhost:8000${contentUrl}` : `http://localhost:8000/api${contentUrl}`
+    console.log('🖼️ URL do conteúdo processado:', url)
+  }
+  // Prioridade 3: URL da pasta /wapi/midias/
+  else if (imageMessage.url && imageMessage.url.startsWith('/wapi/midias/')) {
+    const filename = imageMessage.url.split('/').pop()
+    url = `http://localhost:8000/api/wapi-media/imagens/${filename}`
+  }
+  // Prioridade 4: URL direta do JSON
+  else if (imageMessage.url) {
+    url = imageMessage.url
+  }
+  // Prioridade 5: Tentar construir URL baseada no message_id
+  else if (message.id) {
+    // Tentar diferentes extensões comuns
+    const extensions = ['jpg', 'jpeg', 'png', 'gif', 'webp']
+    for (const ext of extensions) {
+      const testUrl = `http://localhost:8000/api/wapi-media/imagens/${message.id}.${ext}`
+      // Aqui poderíamos fazer uma verificação prévia, mas por enquanto vamos usar a primeira
+      url = testUrl
+      break
+    }
+  }
+  // Fallback: usar endpoint da API
+  else if (message.id) {
+    url = `http://localhost:8000/api/image/message/${message.id}/`
+  }
+
+  if (url) {
+    setMediaUrl(url)
+    setIsLoading(false)
+  } else {
+    setError('Não foi possível obter URL da imagem')
+    setIsLoading(false)
+  }
+}
+
+// Processar mensagem de vídeo
+const processVideoMessage = (videoMessage, message, setMediaUrl, setIsLoading, setError) => {
+  console.log('🎬 Processando vídeo:', videoMessage)
+  
+  let url = null
+  
+  // Prioridade 1: URL da pasta /wapi/midias/
+  if (videoMessage.url && videoMessage.url.startsWith('/wapi/midias/')) {
+    const filename = videoMessage.url.split('/').pop()
+    url = `http://localhost:8000/api/wapi-media/videos/${filename}`
+  }
+  // Prioridade 2: URL direta do JSON
+  else if (videoMessage.url) {
+    url = videoMessage.url
+  }
+  // Prioridade 3: Tentar construir URL baseada no message_id
+  else if (message.id) {
+    const extensions = ['mp4', 'webm', 'avi']
+    for (const ext of extensions) {
+      const testUrl = `http://localhost:8000/api/wapi-media/videos/${message.id}.${ext}`
+      url = testUrl
+      break
+    }
+  }
+  // Fallback: usar endpoint da API
+  else if (message.id) {
+    url = `http://localhost:8000/api/video/message/${message.id}/`
+  }
+
+  if (url) {
+    setMediaUrl(url)
+    setIsLoading(false)
+  } else {
+    setError('Não foi possível obter URL do vídeo')
+    setIsLoading(false)
+  }
+}
+
+// Processar mensagem de sticker
+const processStickerMessage = (stickerMessage, message, setMediaUrl, setIsLoading, setError) => {
+  console.log('😀 Processando sticker:', stickerMessage)
+  
+  let url = null
+  
+  // Prioridade 1: URL da pasta /wapi/midias/
+  if (stickerMessage.url && stickerMessage.url.startsWith('/wapi/midias/')) {
+    const filename = stickerMessage.url.split('/').pop()
+    url = `http://localhost:8000/api/wapi-media/stickers/${filename}`
+  }
+  // Prioridade 2: URL direta do JSON
+  else if (stickerMessage.url) {
+    url = stickerMessage.url
+  }
+  // Prioridade 3: Tentar construir URL baseada no message_id
+  else if (message.id) {
+    const extensions = ['webp', 'gif', 'png']
+    for (const ext of extensions) {
+      const testUrl = `http://localhost:8000/api/wapi-media/stickers/${message.id}.${ext}`
+      url = testUrl
+      break
+    }
+  }
+  // Fallback: usar endpoint da API
+  else if (message.id) {
+    url = `http://localhost:8000/api/sticker/message/${message.id}/`
+  }
+
+  if (url) {
+    setMediaUrl(url)
+    setIsLoading(false)
+  } else {
+    setError('Não foi possível obter URL do sticker')
+    setIsLoading(false)
+  }
+}
+
+// Processar mensagem de documento
+const processDocumentMessage = (documentMessage, message, setMediaUrl, setIsLoading, setError) => {
+  console.log('📄 Processando documento:', documentMessage)
+  
+  let url = null
+  
+  // Prioridade 1: URL da pasta /wapi/midias/
+  if (documentMessage.url && documentMessage.url.startsWith('/wapi/midias/')) {
+    const filename = documentMessage.url.split('/').pop()
+    url = `http://localhost:8000/api/wapi-media/documentos/${filename}`
+  }
+  // Prioridade 2: URL direta do JSON
+  else if (documentMessage.url) {
+    url = documentMessage.url
+  }
+  // Prioridade 3: Tentar construir URL baseada no message_id
+  else if (message.id) {
+    const extensions = ['pdf', 'doc', 'docx', 'txt']
+    for (const ext of extensions) {
+      const testUrl = `http://localhost:8000/api/wapi-media/documentos/${message.id}.${ext}`
+      url = testUrl
+      break
+    }
+  }
+  // Fallback: usar endpoint da API
+  else if (message.id) {
+    url = `http://localhost:8000/api/document/message/${message.id}/`
+  }
+
+  if (url) {
+    setMediaUrl(url)
+    setIsLoading(false)
+  } else {
+    setError('Não foi possível obter URL do documento')
+    setIsLoading(false)
   }
 }
 
