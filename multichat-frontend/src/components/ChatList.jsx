@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { useChatListUpdates, useGlobalUpdates } from '../hooks/use-realtime-updates'
+import { Tooltip } from '../components/ui/tooltip'
 
 // Componente de skeleton para loading
 const ChatSkeleton = () => (
@@ -270,9 +271,9 @@ const ChatList = ({ selectedChat, onSelectChat }) => {
             <h2 className="text-lg font-semibold">Chats</h2>
             <div className="w-6 h-6 bg-gray-200 rounded animate-pulse"></div>
           </div>
-          <div className="flex space-x-2">
+          <div className="flex space-x-1">
             {['all', 'waiting', 'active', 'resolved'].map(filter => (
-              <div key={filter} className="h-8 w-16 bg-gray-200 rounded animate-pulse"></div>
+              <div key={filter} className="h-8 w-8 bg-gray-200 rounded animate-pulse"></div>
             ))}
           </div>
         </div>
@@ -329,6 +330,29 @@ const ChatList = ({ selectedChat, onSelectChat }) => {
               </span>
             )}
           </div>
+        </div>
+        
+        {/* Filtros - RESTAURADOS com tooltips */}
+        <div className="flex space-x-1">
+          {[
+            { key: 'all', label: 'Todos', icon: MessageCircle },
+            { key: 'waiting', label: 'Aguardando', icon: Clock },
+            { key: 'active', label: 'Ativos', icon: User },
+            { key: 'resolved', label: 'Resolvidos', icon: Archive }
+          ].map(({ key, label, icon: Icon }) => (
+            <Tooltip key={key} content={label}>
+              <button
+                onClick={() => setFilter(key)}
+                className={`p-2 rounded-md transition-colors ${
+                  filter === key
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+              </button>
+            </Tooltip>
+          ))}
         </div>
       </div>
 
