@@ -29,7 +29,9 @@ import {
   CheckCheck,
   Play,
   Bookmark,
-  Volume2
+  Volume2,
+  Plus,
+  FileAudio
 } from 'lucide-react'
 import Message from './Message'
 import EmojiPicker from './EmojiPicker'
@@ -75,6 +77,14 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
   const [internalInstances, setInternalInstances] = useState([]);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [editingName, setEditingName] = useState(false);
+  
+  // Estados para sistema de áudio
+  const [showAudioModal, setShowAudioModal] = useState(false);
+  const [selectedAudioFiles, setSelectedAudioFiles] = useState([]);
+  const [currentAudioIndex, setCurrentAudioIndex] = useState(0);
+  const [audioUploadProgress, setAudioUploadProgress] = useState({});
+  const [audioPlaybackStatus, setAudioPlaybackStatus] = useState({});
+  
   // Carregar dados se não foram passados como props
   useEffect(() => {
     const loadMissingData = async () => {
@@ -993,6 +1003,137 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     await handleSendImage(imageDataWithCaption)
   }
 
+  // Funções para gerenciar arquivos de áudio
+  const handleAudioFileSelect = (files) => {
+    const audioFiles = Array.from(files).filter(file => file.type.startsWith('audio/'));
+    
+    if (audioFiles.length === 0) {
+      toast({
+        title: "Erro",
+        description: "Nenhum arquivo de áudio válido selecionado",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const processedFiles = audioFiles.map(file => ({
+      file,
+      name: file.name,
+      size: file.size,
+      type: 'audio',
+      url: URL.createObjectURL(file),
+      id: Date.now() + Math.random()
+    }));
+
+    setSelectedAudioFiles(prev => [...prev, ...processedFiles]);
+    setShowAudioModal(true);
+    setCurrentAudioIndex(0);
+  };
+
+  const handleAudioUpload = async () => {
+    if (!chat || !chat.chat_id || selectedAudioFiles.length === 0) {
+      toast({
+        title: "Erro",
+        description: "Dados insuficientes para upload",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const token = localStorage.getItem('access_token');
+    const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+    for (const audioFile of selectedAudioFiles) {
+      try {
+        setAudioUploadProgress(prev => ({
+          ...prev,
+          [audioFile.id]: 0
+        }));
+
+        const formData = new FormData();
+        formData.append('audio', audioFile.file);
+        formData.append('chat_id', chat.chat_id);
+        formData.append('message_type', 'audio');
+
+        const response = await fetch(`${API_BASE_URL}/api/upload-audio/`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        });
+
+        if (response.ok) {
+          setAudioUploadProgress(prev => ({
+            ...prev,
+            [audioFile.id]: 100
+          }));
+
+          toast({
+            title: "Sucesso",
+            description: `Áudio ${audioFile.name} enviado com sucesso`,
+          });
+
+          // Limpar arquivo após upload bem-sucedido
+          setTimeout(() => {
+            setSelectedAudioFiles(prev => prev.filter(f => f.id !== audioFile.id));
+            setAudioUploadProgress(prev => {
+              const newProgress = { ...prev };
+              delete newProgress[audioFile.id];
+              return newProgress;
+            });
+          }, 2000);
+
+        } else {
+          throw new Error('Falha ao enviar áudio');
+        }
+      } catch (error) {
+        console.error('Erro ao enviar áudio:', error);
+        toast({
+          title: "Erro",
+          description: `Falha ao enviar áudio ${audioFile.name}`,
+          variant: "destructive"
+        });
+      }
+    }
+  };
+
+  const handleAudioPlayback = (audioId, status) => {
+    setAudioPlaybackStatus(prev => ({
+      ...prev,
+      [audioId]: {
+        ...prev[audioId],
+        ...status,
+        reproduzidaEm: new Date().toLocaleTimeString()
+      }
+    }));
+  };
+
+  const removeAudioFile = (audioId) => {
+    setSelectedAudioFiles(prev => prev.filter(f => f.id !== audioId));
+    setAudioUploadProgress(prev => {
+      const newProgress = { ...prev };
+      delete newProgress[audioId];
+      return newProgress;
+    });
+    
+    if (selectedAudioFiles.length === 1) {
+      setShowAudioModal(false);
+    }
+  };
+
+  const nextAudio = () => {
+    if (currentAudioIndex < selectedAudioFiles.length - 1) {
+      setCurrentAudioIndex(prev => prev + 1);
+    }
+  };
+
+  const previousAudio = () => {
+    if (currentAudioIndex > 0) {
+      setCurrentAudioIndex(prev => prev - 1);
+    }
+  };
+
   // Função para lidar com seleção de emoji
   const handleEmojiSelect = (emoji) => {
     // Adicionar emoji à mensagem (pode adicionar quantos quiser)
@@ -1149,6 +1290,7 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
         onSendMessage={handleSendMessage}
         onSendPendingImage={handleSendPendingImage}
         onEmojiSelect={handleEmojiSelect}
+        onAudioSelect={() => setShowAudioModal(true)}
       />
 
       {/* Modal de informações do contato */}
@@ -1200,6 +1342,162 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
         onClose={() => setShowImageUpload(false)}
         onImageSelect={handleSendImage}
       />
+
+      {/* Modal de áudio */}
+      <Dialog open={showAudioModal} onOpenChange={setShowAudioModal}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Volume2 className="w-5 h-5 text-orange-500" />
+              Selecionar Áudios
+            </DialogTitle>
+            <DialogDescription>
+              Selecione e visualize os arquivos de áudio antes de enviar
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex flex-col gap-4">
+            {/* Área de seleção de arquivos */}
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-orange-400 transition-colors">
+              <input
+                type="file"
+                multiple
+                accept="audio/*"
+                onChange={(e) => handleAudioFileSelect(e.target.files)}
+                className="hidden"
+                id="audio-file-input"
+              />
+              <label
+                htmlFor="audio-file-input"
+                className="cursor-pointer flex flex-col items-center gap-3"
+              >
+                <div className="bg-orange-500 text-white rounded-full p-4">
+                  <Plus className="w-8 h-8" />
+                </div>
+                <div>
+                  <p className="font-medium text-lg">Adicionar Áudios</p>
+                  <p className="text-sm text-gray-500">
+                    Clique para selecionar arquivos de áudio
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {/* Lista de áudios selecionados */}
+            {selectedAudioFiles.length > 0 && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-medium">Áudios Selecionados ({selectedAudioFiles.length})</h3>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={previousAudio}
+                      disabled={currentAudioIndex === 0}
+                    >
+                      <SkipBack className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={nextAudio}
+                      disabled={currentAudioIndex === selectedAudioFiles.length - 1}
+                    >
+                      <SkipForward className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Visualização do áudio atual */}
+                <div className="flex flex-col items-center justify-center p-8 bg-accent rounded-lg w-full max-w-md mx-auto">
+                  <Volume2 className="w-16 h-16 text-orange-500 mb-4" />
+                  <p className="text-lg font-medium mb-2 text-center">
+                    {selectedAudioFiles[currentAudioIndex]?.name}
+                  </p>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    {(selectedAudioFiles[currentAudioIndex]?.file.size / 1024 / 1024).toFixed(2)} MB
+                  </p>
+                  
+                  {/* Player HTML5 com controles nativos */}
+                  <audio 
+                    src={selectedAudioFiles[currentAudioIndex]?.url} 
+                    controls
+                    className="w-full"
+                    onPlay={() => handleAudioPlayback(selectedAudioFiles[currentAudioIndex]?.id, { isPlaying: true })}
+                    onPause={() => handleAudioPlayback(selectedAudioFiles[currentAudioIndex]?.id, { isPlaying: false })}
+                    onEnded={() => handleAudioPlayback(selectedAudioFiles[currentAudioIndex]?.id, { isPlaying: false, isCompleted: true })}
+                  />
+                </div>
+
+                {/* Thumbnails dos áudios */}
+                <div className="grid grid-cols-4 gap-2 max-h-32 overflow-y-auto">
+                  {selectedAudioFiles.map((item, index) => (
+                    <div
+                      key={item.id}
+                      className={`relative cursor-pointer rounded-lg border-2 transition-all ${
+                        index === currentAudioIndex
+                          ? 'border-orange-500 bg-orange-50'
+                          : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                      onClick={() => setCurrentAudioIndex(index)}
+                    >
+                      <div className="w-full h-20 bg-accent flex items-center justify-center">
+                        <Volume2 className="w-6 h-6 text-muted-foreground" />
+                      </div>
+                      <div className="p-2 text-center">
+                        <p className="text-xs font-medium truncate">{item.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {(item.size / 1024 / 1024).toFixed(2)} MB
+                        </p>
+                      </div>
+                      
+                      {/* Botão de remover */}
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        className="absolute -top-2 -right-2 h-6 w-6 p-0 rounded-full"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeAudioFile(item.id);
+                        }}
+                      >
+                        <X className="w-3 h-3" />
+                      </Button>
+
+                      {/* Indicador de progresso */}
+                      {audioUploadProgress[item.id] !== undefined && (
+                        <div className="absolute bottom-0 left-0 right-0 h-1 bg-gray-200 rounded-b-lg overflow-hidden">
+                          <div 
+                            className="h-full bg-green-500 transition-all duration-300"
+                            style={{ width: `${audioUploadProgress[item.id]}%` }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Botões de ação */}
+                <div className="flex items-center justify-between pt-4 border-t">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowAudioModal(false)}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    onClick={handleAudioUpload}
+                    disabled={selectedAudioFiles.length === 0}
+                    className="bg-orange-500 hover:bg-orange-600"
+                  >
+                    Enviar {selectedAudioFiles.length} Áudio{selectedAudioFiles.length !== 1 ? 's' : ''}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

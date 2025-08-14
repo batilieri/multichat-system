@@ -3285,3 +3285,177 @@ def serve_audio_by_hash_mapping(request, message_id):
         traceback.print_exc()
         return Response({'error': str(e)}, status=500)
 
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def serve_whatsapp_audio_smart(request, cliente_id, instance_id, chat_id, message_id):
+    """
+    Endpoint inteligente para servir áudio da estrutura media_storage do WhatsApp
+    Faz auto-detecção do arquivo baseado no message_id
+    """
+    try:
+        logger.info(f"🎵 Endpoint inteligente: cliente={cliente_id}, instance={instance_id}, chat={chat_id}, message={message_id}")
+        
+        # **CORREÇÃO: Buscar mensagem com mais flexibilidade**
+        mensagem = None
+        try:
+            # Tentar buscar por message_id primeiro
+            mensagem = Mensagem.objects.get(
+                message_id=message_id,
+                tipo='audio'
+            )
+            logger.info(f"🎵 Mensagem encontrada por message_id: {mensagem.id}")
+        except Mensagem.DoesNotExist:
+            try:
+                # Fallback: buscar por ID da mensagem
+                mensagem = Mensagem.objects.get(
+                    id=message_id,
+                    tipo='audio'
+                )
+                logger.info(f"🎵 Mensagem encontrada por ID: {mensagem.id}")
+            except Mensagem.DoesNotExist:
+                # **CORREÇÃO: Buscar por chat_id se não encontrar por message_id**
+                try:
+                    mensagem = Mensagem.objects.filter(
+                        chat__chat_id=chat_id,
+                        tipo='audio'
+                    ).order_by('-data_envio').first()
+                    
+                    if mensagem:
+                        logger.info(f"🎵 Mensagem encontrada por chat_id: {mensagem.id}")
+                    else:
+                        logger.warning(f"Mensagem de áudio não encontrada para chat: {chat_id}")
+                        return Response({'error': 'Mensagem não encontrada'}, status=404)
+                        
+                except Exception as e:
+                    logger.error(f"Erro ao buscar mensagem por chat_id: {e}")
+                    return Response({'error': 'Erro ao buscar mensagem'}, status=500)
+        
+        # **CORREÇÃO: Construir caminho para o arquivo na estrutura media_storage**
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        audio_dir = os.path.join(project_root, 'media_storage', str(cliente_id), instance_id, 'chats', chat_id, 'audio')
+        
+        logger.info(f"🎵 Procurando em: {audio_dir}")
+        
+        if not os.path.exists(audio_dir):
+            logger.warning(f"Diretório de áudio não encontrado: {audio_dir}")
+            # **CORREÇÃO: Tentar criar diretório se não existir**
+            try:
+                os.makedirs(audio_dir, exist_ok=True)
+                logger.info(f"🎵 Diretório criado: {audio_dir}")
+            except Exception as e:
+                logger.error(f"Erro ao criar diretório: {e}")
+                return Response({'error': 'Diretório de áudio não encontrado'}, status=404)
+        
+        # **CORREÇÃO: Procurar por arquivo que contenha o message_id no nome**
+        audio_file = None
+        
+        # Prioridade 1: Procurar por message_id exato
+        for filename in os.listdir(audio_dir):
+            if message_id in filename:
+                audio_file = filename
+                logger.info(f"🎵 Arquivo encontrado por message_id: {audio_file}")
+                break
+        
+        # Prioridade 2: Se não encontrou, procurar por ID da mensagem
+        if not audio_file and mensagem.id:
+            for filename in os.listdir(audio_dir):
+                if str(mensagem.id) in filename:
+                    audio_file = filename
+                    logger.info(f"🎵 Arquivo encontrado por ID: {audio_file}")
+                    break
+        
+        # Prioridade 3: Se ainda não encontrou, procurar por qualquer arquivo de áudio
+        if not audio_file:
+            for filename in os.listdir(audio_dir):
+                if filename.lower().endswith(('.ogg', '.mp3', '.m4a', '.wav')):
+                    audio_file = filename
+                    logger.info(f"🎵 Usando primeiro arquivo de áudio encontrado: {audio_file}")
+                    break
+        
+        if not audio_file:
+            logger.warning(f"Arquivo de áudio não encontrado para message_id: {message_id}")
+            # Listar arquivos disponíveis para debug
+            available_files = os.listdir(audio_dir)
+            logger.info(f"Arquivos disponíveis: {available_files}")
+            return Response({
+                'error': 'Arquivo de áudio não encontrado',
+                'message_id': message_id,
+                'available_files': available_files,
+                'search_dir': audio_dir,
+                'suggestion': 'Verifique se o arquivo foi baixado corretamente'
+            }, status=404)
+        
+        audio_path = os.path.join(audio_dir, audio_file)
+        logger.info(f"🎵 Servindo arquivo: {audio_path}")
+        
+        # **CORREÇÃO: Servir arquivo com melhor tratamento de erros**
+        try:
+            with open(audio_path, 'rb') as audio_file_obj:
+                # **CORREÇÃO: Determinar Content-Type baseado na extensão**
+                content_type = 'audio/ogg'  # padrão
+                if audio_path.lower().endswith('.mp3'):
+                    content_type = 'audio/mpeg'
+                elif audio_path.lower().endswith('.m4a'):
+                    content_type = 'audio/mp4'
+                elif audio_path.lower().endswith('.wav'):
+                    content_type = 'audio/wav'
+                
+                response = HttpResponse(audio_file_obj.read(), content_type=content_type)
+                response['Content-Disposition'] = f'inline; filename="{audio_file}"'
+                
+                # **CORREÇÃO: Adicionar headers para CORS e cache**
+                response['Access-Control-Allow-Origin'] = '*'
+                response['Cache-Control'] = 'public, max-age=3600'
+                response['X-Audio-File'] = audio_file
+                response['X-Message-ID'] = message_id
+                response['X-Chat-ID'] = chat_id
+                
+                logger.info(f"🎵 Áudio servido com sucesso: {audio_file}")
+                return response
+                
+        except Exception as e:
+            logger.error(f"Erro ao ler arquivo de áudio: {e}")
+            return Response({'error': 'Erro ao ler arquivo'}, status=500)
+            
+    except Exception as e:
+        logger.error(f"Erro ao servir áudio inteligente: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({'error': 'Erro interno do servidor'}, status=500)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def test_mensagens_public(request):
+    """
+    Endpoint público para testar mensagens (sem autenticação)
+    """
+    try:
+        # Buscar mensagens de áudio para teste
+        mensagens = Mensagem.objects.filter(tipo='audio')[:10]
+        
+        if mensagens.exists():
+            # Serializar mensagens
+            from .serializers import MensagemSerializer
+            serializer = MensagemSerializer(mensagens, many=True)
+            
+            return Response({
+                'status': 'success',
+                'count': len(mensagens),
+                'mensagens': serializer.data,
+                'message': 'Mensagens de áudio encontradas'
+            })
+        else:
+            return Response({
+                'status': 'warning',
+                'count': 0,
+                'mensagens': [],
+                'message': 'Nenhuma mensagem de áudio encontrada'
+            })
+            
+    except Exception as e:
+        logger.error(f"Erro no endpoint público de mensagens: {e}")
+        return Response({
+            'status': 'error',
+            'error': str(e)
+        }, status=500)
+

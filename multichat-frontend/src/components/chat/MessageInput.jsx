@@ -4,7 +4,8 @@ import {
   Send,
   Paperclip,
   Smile,
-  X
+  X,
+  Volume2
 } from 'lucide-react'
 import EmojiPicker from '../EmojiPicker'
 import { Button } from '../ui/button'
@@ -25,7 +26,8 @@ const MessageInput = ({
   setShowImageUpload,
   onSendMessage,
   onSendPendingImage,
-  onEmojiSelect
+  onEmojiSelect,
+  onAudioSelect
 }) => {
   return (
     <div className="p-4 border-t border-border bg-card">
@@ -79,6 +81,14 @@ const MessageInput = ({
           title="Enviar imagem"
         >
           <Paperclip className="h-5 w-5 text-muted-foreground" />
+        </button>
+
+        <button
+          className="p-2 hover:bg-accent rounded-lg transition-colors"
+          onClick={onAudioSelect}
+          title="Enviar áudio"
+        >
+          <Volume2 className="h-5 w-5 text-muted-foreground" />
         </button>
 
         <button

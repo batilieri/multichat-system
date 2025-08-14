@@ -14,11 +14,13 @@ import Settings from './components/Settings'
 import Login from './components/Login'
 import Relatorios from './components/Relatorios'
 import Favoritas from './components/Favoritas'
+import GlobalAudioPlayer from './components/GlobalAudioPlayer'
 
 // Context
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { RealtimeProvider } from './contexts/RealtimeContext'
+import { AudioPlayerProvider } from './contexts/AudioPlayerContext'
 
 // Componente para rotas protegidas
 const ProtectedRoute = ({ children, requiredPermission }) => {
@@ -133,6 +135,9 @@ function AppLayout() {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </main>
+        
+        {/* Player de áudio global */}
+        <GlobalAudioPlayer />
       </div>
     </div>
   )
@@ -143,9 +148,11 @@ function App() {
     <ThemeProvider>
       <AuthProvider>
         <RealtimeProvider>
-          <Router>
-            <AppLayout />
-          </Router>
+          <AudioPlayerProvider>
+            <Router>
+              <AppLayout />
+            </Router>
+          </AudioPlayerProvider>
         </RealtimeProvider>
       </AuthProvider>
     </ThemeProvider>

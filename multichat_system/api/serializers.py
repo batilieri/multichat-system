@@ -378,6 +378,64 @@ class MensagemSerializer(serializers.ModelSerializer):
         
         conteudo = obj.conteudo
         
+        # **CORREÇÃO: Para mensagens de áudio, garantir que o conteúdo seja processado corretamente**
+        if obj.tipo == 'audio' and conteudo:
+            try:
+                # Se o conteúdo já é JSON estruturado, manter como está
+                if conteudo.startswith('{'):
+                    import json
+                    parsed_content = json.loads(conteudo)
+                    
+                    # Verificar se contém dados de áudio válidos
+                    if 'audioMessage' in parsed_content:
+                        audio_data = parsed_content['audioMessage']
+                        
+                        # **CORREÇÃO: Adicionar campos adicionais que o frontend pode precisar**
+                        if not audio_data.get('fileName') and audio_data.get('url'):
+                            # Extrair nome do arquivo da URL se não estiver definido
+                            url_parts = audio_data['url'].split('/')
+                            if len(url_parts) > 0:
+                                audio_data['fileName'] = url_parts[-1]
+                        
+                        # **CORREÇÃO: Adicionar informações de duração se disponível**
+                        if not audio_data.get('duration') and audio_data.get('seconds'):
+                            audio_data['duration'] = audio_data['seconds']
+                        
+                        # **CORREÇÃO: Garantir que o conteúdo seja retornado como JSON válido**
+                        return json.dumps(parsed_content, ensure_ascii=False)
+                    
+                    # Se não contém audioMessage, pode ser um erro no processamento
+                    logger.warning(f"Conteúdo de áudio não contém audioMessage: {conteudo[:100]}")
+                
+                # **CORREÇÃO: Se o conteúdo não for JSON, tentar criar estrutura básica**
+                elif conteudo == '[Áudio]' or conteudo == '[Audio]':
+                    # Criar estrutura básica para áudio
+                    basic_audio = {
+                        "audioMessage": {
+                            "url": "",
+                            "mimetype": "audio/ogg",
+                            "seconds": 0,
+                            "ptt": False,
+                            "fileName": f"audio_{obj.id}.ogg"
+                        }
+                    }
+                    return json.dumps(basic_audio, ensure_ascii=False)
+                
+            except (json.JSONDecodeError, Exception) as e:
+                logger.error(f"Erro ao processar conteúdo de áudio: {e}")
+                # **CORREÇÃO: Fallback para conteúdo de áudio corrompido**
+                fallback_audio = {
+                    "audioMessage": {
+                        "url": "",
+                        "mimetype": "audio/ogg",
+                        "seconds": 0,
+                        "ptt": False,
+                        "fileName": f"audio_{obj.id}.ogg",
+                        "error": "Conteúdo corrompido"
+                    }
+                }
+                return json.dumps(fallback_audio, ensure_ascii=False)
+        
         # Se é uma mensagem de mídia, tentar encontrar o arquivo local
         if obj.tipo in ['audio', 'image', 'video', 'document', 'sticker'] and conteudo:
             # Extrair o message_id do conteúdo se possível
@@ -403,17 +461,41 @@ class MensagemSerializer(serializers.ModelSerializer):
             if local_url:
                 return local_url
             
-            # Se não encontrou arquivo local, verificar se há conteúdo de mídia no JSON
+            # **CORREÇÃO: Para áudio, verificar se há conteúdo de mídia no JSON**
             try:
                 import json
                 content = obj.conteudo
                 if content and isinstance(content, str) and content.startswith('{'):
                     parsed_content = json.loads(content)
                     
-                    # Para áudio, verificar se há audioMessage
+                    # **CORREÇÃO: Para áudio, verificar se há audioMessage**
                     if obj.tipo == 'audio' and 'audioMessage' in parsed_content:
-                        # Retornar endpoint que pode tentar baixar/servir o áudio
-                        return f"/api/audio/message/{obj.id}/public/"
+                        audio_message = parsed_content['audioMessage']
+                        
+                        # **CORREÇÃO: Prioridade 1: localPath (arquivo já baixado)**
+                        if audio_message.get('localPath'):
+                            # Converter caminho local para URL da API
+                            filename = audio_message['localPath'].split('/')[-1]
+                            return f"/api/local-audio/{filename}/"
+                        
+                        # **CORREÇÃO: Prioridade 2: directPath (caminho relativo)**
+                        elif audio_message.get('directPath'):
+                            # Usar endpoint que pode servir arquivos por directPath
+                            return f"/api/whatsapp-media/audio/{obj.id}/"
+                        
+                        # **CORREÇÃO: Prioridade 3: fileName (nome do arquivo)**
+                        elif audio_message.get('fileName'):
+                            # Usar endpoint que pode servir arquivos por fileName
+                            return f"/api/wapi-media/audios/{audio_message['fileName']}"
+                        
+                        # **CORREÇÃO: Prioridade 4: URL relativa para /wapi/midias/**
+                        elif audio_message.get('url') and audio_message['url'].startswith('/wapi/midias/'):
+                            filename = audio_message['url'].split('/')[-1]
+                            return f"/api/wapi-media/audios/{filename}"
+                        
+                        # **CORREÇÃO: Prioridade 5: Retornar endpoint que pode tentar baixar/servir o áudio**
+                        else:
+                            return f"/api/audio/message/{obj.id}/public/"
                     
                     # Para outras mídias, implementar lógica similar se necessário
                     elif obj.tipo in ['image', 'imagem'] and 'imageMessage' in parsed_content:
@@ -428,8 +510,8 @@ class MensagemSerializer(serializers.ModelSerializer):
                     elif obj.tipo == 'sticker' and 'stickerMessage' in parsed_content:
                         return f"/api/sticker/message/{obj.id}/public/"
                 
-            except (json.JSONDecodeError, AttributeError):
-                pass
+            except (json.JSONDecodeError, AttributeError) as e:
+                logger.warning(f"Erro ao processar media_url para {obj.tipo}: {e}")
         
         return None
     

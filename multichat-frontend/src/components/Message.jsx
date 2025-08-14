@@ -34,6 +34,9 @@ import { togglePinMessage, toggleFavoriteMessage } from '../data/mock/messages'
 import { getAllChats } from '../data/mock/chats'
 import MediaProcessor from './MediaProcessor'
 import WhatsAppAudioPlayer from './WhatsAppAudioPlayer'
+import AdvancedAudioPlayer from './AdvancedAudioPlayer'
+import SimpleAudioPlayer from './SimpleAudioPlayer'
+import { Button } from './ui/button'
 
 // Tipos de mensagem suportados
 const MessageType = {
@@ -927,6 +930,7 @@ const AudioPlayer = ({ message }) => {
   const [duration, setDuration] = useState(0)
   const [audioUrl, setAudioUrl] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState(null)
   const audioRef = useRef(null)
 
   useEffect(() => {
@@ -941,6 +945,12 @@ const AudioPlayer = ({ message }) => {
     const handleLoadedData = () => {
       setIsLoading(false)
       setDuration(audio.duration)
+      setError(null)
+    }
+    const handleError = (e) => {
+      console.error('🎵 Erro ao carregar áudio:', e)
+      setError('Erro ao carregar áudio')
+      setIsLoading(false)
     }
 
     audio.addEventListener('timeupdate', updateTime)
@@ -949,6 +959,7 @@ const AudioPlayer = ({ message }) => {
     audio.addEventListener('pause', handlePause)
     audio.addEventListener('ended', handleEnded)
     audio.addEventListener('loadeddata', handleLoadedData)
+    audio.addEventListener('error', handleError)
 
     return () => {
       audio.removeEventListener('timeupdate', updateTime)
@@ -957,89 +968,117 @@ const AudioPlayer = ({ message }) => {
       audio.removeEventListener('pause', handlePause)
       audio.removeEventListener('ended', handleEnded)
       audio.removeEventListener('loadeddata', handleLoadedData)
+      audio.removeEventListener('error', handleError)
     }
   }, [])
 
-  // Determinar URL do áudio
+  // **CORREÇÃO: Determinar URL do áudio com melhor lógica de fallback**
   useEffect(() => {
     console.log('🎵 DEBUG AudioPlayer - Dados da mensagem:', message);
     let url = null
     
-    // Prioridade 1: Nova estrutura de armazenamento por chat_id
-    if (message.chat_id) {
-      // Usar endpoint inteligente que detecta o arquivo automaticamente
-      const chatId = message.chat_id
-      const clienteId = 2 // Cliente Elizeu
-      const instanceId = '3B6XIW-ZTS923-GEAY6V'
-      const messageId = message.message_id || message.id
-      
-      // Usar endpoint que faz auto-detecção do arquivo baseado no message_id
-      url = `http://localhost:8000/api/whatsapp-audio-smart/${clienteId}/${instanceId}/${chatId}/${messageId}/`
-      console.log('🎵 URL inteligente por chat_id e message_id:', url);
-    }
-    // Prioridade 2: URL da pasta /wapi/midias/ (sistema integrado)
-    else if (message.content || message.conteudo) {
-      try {
-        const content = message.content || message.conteudo
-        let jsonContent
+    try {
+      // Prioridade 1: Nova estrutura de armazenamento por chat_id
+      if (message.chat_id) {
+        // Usar endpoint inteligente que detecta o arquivo automaticamente
+        const chatId = message.chat_id
+        const clienteId = message.cliente_id || 2 // Cliente Elizeu (padrão)
+        // **CORREÇÃO: Usar a instância correta onde estão os arquivos**
+        const instanceId = message.instance_id || 'DTBDM1-YC2NM5-79C0T4' // Instância correta
+        const messageId = message.message_id || message.id
         
-        if (typeof content === 'string') {
-          jsonContent = JSON.parse(content)
-        } else {
-          jsonContent = content
-        }
-        
-        if (jsonContent.audioMessage) {
-          const audioMessage = jsonContent.audioMessage
-          
-          // Prioridade 2a: URL da pasta /wapi/midias/
-          if (audioMessage.url && audioMessage.url.startsWith('/wapi/midias/')) {
-            const filename = audioMessage.url.split('/').pop()
-            url = `http://localhost:8000/api/wapi-media/audios/${filename}`
-            console.log('🎵 URL /wapi/midias/:', url);
-          }
-          // Prioridade 2b: Nome do arquivo na pasta /wapi/midias/
-          else if (audioMessage.fileName) {
-            url = `http://localhost:8000/api/wapi-media/audios/${audioMessage.fileName}`
-            console.log('🎵 URL por fileName:', url);
-          }
-          // Prioridade 2c: URL direta do JSON
-          else if (audioMessage.url) {
-            url = audioMessage.url
-            console.log('🎵 URL direta do JSON:', url);
-          }
-        }
-      } catch (e) {
-        console.warn('🎵 Não foi possível extrair URL do áudio:', e)
+        // Usar endpoint que faz auto-detecção do arquivo baseado no message_id
+        url = `http://localhost:8000/api/whatsapp-audio-smart/${clienteId}/${instanceId}/${chatId}/${messageId}/`
+        console.log('🎵 URL inteligente por chat_id e message_id:', url);
       }
+      // Prioridade 2: URL da pasta /wapi/midias/ (sistema integrado)
+      else if (message.content || message.conteudo) {
+        try {
+          const content = message.content || message.conteudo
+          let jsonContent
+          
+          if (typeof content === 'string') {
+            jsonContent = JSON.parse(content)
+          } else {
+            jsonContent = content
+          }
+          
+          if (jsonContent.audioMessage) {
+            const audioMessage = jsonContent.audioMessage
+            
+            // Prioridade 2a: URL da pasta /wapi/midias/
+            if (audioMessage.url && audioMessage.url.startsWith('/wapi/midias/')) {
+              const filename = audioMessage.url.split('/').pop()
+              url = `http://localhost:8000/api/wapi-media/audios/${filename}`
+              console.log('🎵 URL /wapi/midias/:', url);
+            }
+            // Prioridade 2b: Nome do arquivo na pasta /wapi/midias/
+            else if (audioMessage.fileName) {
+              url = `http://localhost:8000/api/wapi-media/audios/${audioMessage.fileName}`
+              console.log('🎵 URL por fileName:', url);
+            }
+            // Prioridade 2c: URL direta do JSON
+            else if (audioMessage.url) {
+              url = audioMessage.url
+              console.log('🎵 URL direta do JSON:', url);
+            }
+            // Prioridade 2d: localPath (arquivo local)
+            else if (audioMessage.localPath) {
+              const filename = audioMessage.localPath.split('/').pop()
+              url = `http://localhost:8000/api/local-audio/${encodeURIComponent(filename)}/`
+              console.log('🎵 URL por localPath:', url);
+            }
+          }
+        } catch (e) {
+          console.warn('🎵 Não foi possível extrair URL do áudio:', e)
+        }
+      }
+      
+      // Prioridade 3: URL processada do backend (/media/)
+      if (!url && message.mediaUrl && message.mediaUrl.startsWith('/media/')) {
+        url = `http://localhost:8000/api${message.mediaUrl}`
+        console.log('🎵 URL processada do backend:', url);
+      }
+      
+      // Prioridade 4: URL processada como caminho relativo
+      if (!url && message.mediaUrl && message.mediaUrl.startsWith('audios/')) {
+        url = `http://localhost:8000/api/media/${message.mediaUrl}`
+        console.log('🎵 URL relativa:', url);
+      }
+      
+      // Prioridade 5: URL direta do WhatsApp (ainda criptografada)
+      if (!url && message.mediaUrl && message.mediaUrl.startsWith('http')) {
+        url = message.mediaUrl
+        console.log('🎵 URL direta do WhatsApp:', url);
+      }
+      
+      // **CORREÇÃO: Fallback melhorado usando endpoint público da API**
+      if (!url && message.id) {
+        url = `http://localhost:8000/api/audio/message/${message.id}/public/`
+        console.log('🎵 URL fallback público por ID:', url);
+      }
+      
+      // **CORREÇÃO: Fallback adicional para mensagens com message_id**
+      if (!url && message.message_id) {
+        url = `http://localhost:8000/api/audio/message/${message.id}/public/`
+        console.log('🎵 URL fallback por message_id:', url);
+      }
+      
+      console.log('🎵 URL final do áudio:', url);
+      
+      if (url) {
+        setAudioUrl(url)
+        setError(null)
+      } else {
+        setError('Não foi possível obter URL do áudio')
+        setIsLoading(false)
+      }
+      
+    } catch (e) {
+      console.error('🎵 Erro ao determinar URL do áudio:', e)
+      setError('Erro ao processar áudio')
+      setIsLoading(false)
     }
-    
-    // Prioridade 3: URL processada do backend (/media/)
-    if (!url && message.mediaUrl && message.mediaUrl.startsWith('/media/')) {
-      url = `http://localhost:8000/api${message.mediaUrl}`
-      console.log('🎵 URL processada do backend:', url);
-    }
-    
-    // Prioridade 4: URL processada como caminho relativo
-    if (!url && message.mediaUrl && message.mediaUrl.startsWith('audios/')) {
-      url = `http://localhost:8000/api/media/${message.mediaUrl}`
-      console.log('🎵 URL relativa:', url);
-    }
-    
-    // Prioridade 5: URL direta do WhatsApp (ainda criptografada)
-    if (!url && message.mediaUrl && message.mediaUrl.startsWith('http')) {
-      url = message.mediaUrl
-      console.log('🎵 URL direta do WhatsApp:', url);
-    }
-    
-    // Fallback: usar endpoint público da API para servir áudio pelo ID da mensagem
-    if (!url && message.id) {
-      url = `http://localhost:8000/api/audio/message/${message.id}/public/`
-      console.log('🎵 URL fallback público por ID:', url);
-    }
-    
-    console.log('🎵 URL final do áudio:', url);
-    setAudioUrl(url)
   }, [message])
 
   const togglePlay = () => {
@@ -1068,44 +1107,38 @@ const AudioPlayer = ({ message }) => {
 
   const sliderValue = duration > 0 ? [(currentTime / duration) * 100] : [0]
 
-  // Se não há URL de áudio, mostrar mensagem de erro
-  if (!audioUrl) {
+  // **CORREÇÃO: Renderizar erro se houver problema**
+  if (error) {
     return (
-      <div className="space-y-2">
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-accent border border-border rounded-lg p-4"
+      <div className="flex items-center gap-3 p-4 bg-destructive/10 border border-destructive/20 rounded-lg">
+        <AlertTriangle className="w-5 h-5 text-destructive" />
+        <div>
+          <p className="text-sm font-medium text-destructive">Erro no áudio</p>
+          <p className="text-xs text-destructive/80">{error}</p>
+        </div>
+        <Button 
+          variant="outline" 
+          size="sm"
+          onClick={() => {
+            setError(null)
+            setIsLoading(true)
+            // Tentar recarregar
+            if (audioUrl) {
+              const audio = audioRef.current
+              if (audio) {
+                audio.load()
+              }
+            }
+          }}
         >
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-red-500 rounded-lg text-white">
-              <AlertTriangle className="w-5 h-5" />
-            </div>
-            <div className="flex-1">
-              <p className="font-medium text-foreground">Áudio não disponível</p>
-              <p className="text-xs text-muted-foreground">
-                Este áudio não pode ser reproduzido
-              </p>
-            </div>
-          </div>
-        </motion.div>
+          Tentar novamente
+        </Button>
       </div>
     )
   }
 
   return (
-    <div className="space-y-2">
-      {/* Comentário do áudio */}
-      {message.content && message.tipo !== 'texto' && (
-        <motion.p 
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="text-sm opacity-90 mb-2"
-        >
-          {message.content}
-        </motion.p>
-      )}
-      {/* Áudio no estilo do documento */}
+    <div className="w-full">
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -1190,6 +1223,7 @@ const AudioPlayer = ({ message }) => {
           onError={(e) => {
             console.error('Erro ao carregar áudio:', e)
             setIsLoading(false)
+            setError('Falha ao carregar áudio')
           }}
         />
       </motion.div>
@@ -1248,14 +1282,39 @@ function renderMessageContent(message) {
   });
 
   // Suporte tanto para 'texto' (pt) quanto 'text' (en)
-  const tipo = message.tipo || message.type;
+  const tipo = message.tipo || message.type || message.messageType;
   const showContent = tipo !== 'texto' && tipo !== 'text' && message.content;
+  
+  // **CORREÇÃO: Detecção melhorada de mensagens de áudio**
+  const isAudioMessage = 
+    tipo === MessageType.AUDIO || 
+    tipo === 'audio' || 
+    tipo === 'Audio' ||
+    message.conteudo === '[Áudio]' || 
+    message.content === '[Áudio]' ||
+    message.conteudo === '[Audio]' ||
+    message.content === '[Audio]' ||
+    (message.conteudo && typeof message.conteudo === 'string' && (
+      message.conteudo.includes('Áudio') || 
+      message.conteudo.includes('Audio') ||
+      message.conteudo.includes('audio') ||
+      message.conteudo.includes('"audioMessage"')
+    )) ||
+    (message.content && typeof message.content === 'string' && (
+      message.content.includes('Áudio') || 
+      message.content.includes('Audio') ||
+      message.content.includes('audio') ||
+      message.content.includes('"audioMessage"')
+    )) ||
+    // Verificar se o conteúdo contém dados de áudio estruturados
+    (message.conteudo && typeof message.conteudo === 'string' && message.conteudo.includes('"audioMessage"')) ||
+    (message.content && typeof message.content === 'string' && message.content.includes('"audioMessage"'));
 
   // Debug: verificar tipo
   console.log('🎯 Tipo detectado:', tipo);
   console.log('🎯 MessageType.AUDIO:', MessageType.AUDIO);
-  console.log('🎯 É áudio?', tipo === MessageType.AUDIO);
-  console.log('🎯 Comparação exata:', tipo === 'audio');
+  console.log('🎯 É áudio?', isAudioMessage);
+  console.log('🎯 Conteúdo da mensagem:', message.conteudo || message.content);
   console.log('🎯 Tipo do tipo:', typeof tipo);
   console.log('🎯 Tipo do MessageType.AUDIO:', typeof MessageType.AUDIO);
 
@@ -1272,10 +1331,12 @@ function renderMessageContent(message) {
     )
   }
 
-  // Para mensagens de áudio, usar o WhatsAppAudioPlayer
-  if (tipo === MessageType.AUDIO || tipo === 'audio') {
-    console.log('🎵 Usando WhatsAppAudioPlayer para áudio');
-    return <WhatsAppAudioPlayer message={message} isOwnMessage={message.isOwn || message.from_me || message.fromMe} />;
+  // **CORREÇÃO: Para mensagens de áudio, usar o AudioPlayer principal primeiro**
+  if (isAudioMessage) {
+    console.log('🎵 Usando AudioPlayer principal para áudio');
+    return (
+      <AudioPlayer message={message} />
+    );
   }
 
   // Para outros tipos de mídia, usar o MediaProcessor
@@ -1292,31 +1353,48 @@ function renderMessageContent(message) {
     return <MediaProcessor message={message} />;
   }
 
-  // Para mensagens de texto com conteúdo JSON (fallback)
+  // **CORREÇÃO: Para mensagens de texto com conteúdo JSON (fallback melhorado)**
   if (message.conteudo && typeof message.conteudo === 'string' && message.conteudo.startsWith('{')) {
     try {
       const parsedContent = JSON.parse(message.conteudo);
       
-      // Se contém dados de mídia, usar MediaProcessor
-      if (parsedContent.audioMessage || parsedContent.imageMessage || 
-          parsedContent.videoMessage || parsedContent.documentMessage || 
-          parsedContent.stickerMessage) {
+      // Se contém dados de áudio, usar AudioPlayer principal
+      if (parsedContent.audioMessage) {
+        console.log('🎵 Conteúdo JSON com áudio detectado, usando AudioPlayer principal');
+        return (
+          <AudioPlayer 
+            message={message} 
+          />
+        );
+      }
+      
+      // Se contém outros tipos de mídia, usar MediaProcessor
+      if (parsedContent.imageMessage || parsedContent.videoMessage || 
+          parsedContent.documentMessage || parsedContent.stickerMessage) {
         console.log('🎵 Conteúdo JSON com mídia detectado, usando MediaProcessor');
         return <MediaProcessor message={message} />;
       }
+      
     } catch (e) {
-      console.log('🔍 DEBUG - Erro ao parsear JSON:', e);
+      console.warn('🎵 Erro ao parsear conteúdo JSON:', e);
     }
   }
 
-  // Fallback: renderizar como texto se não for reconhecido
+  // **CORREÇÃO: Fallback para mensagens com conteúdo de áudio não estruturado**
+  if (message.conteudo && typeof message.conteudo === 'string' && 
+      (message.conteudo.includes('Áudio') || message.conteudo.includes('Audio'))) {
+    console.log('🎵 Conteúdo de áudio detectado, usando AudioPlayer principal');
+    return <AudioPlayer message={message} />;
+  }
+
+  // Fallback final: exibir conteúdo como texto
   return (
     <motion.p 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="whitespace-pre-wrap leading-relaxed pr-8 text-muted-foreground"
+      className="whitespace-pre-wrap leading-relaxed pr-8"
     >
-      {message.conteudo || message.content || '[Conteúdo não suportado]'}
+      {renderTextWithEmojis(message.conteudo || message.content || '[Mídia]')}
     </motion.p>
   )
 }

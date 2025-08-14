@@ -22,11 +22,13 @@ from .views import (
     serve_audio_message,
     serve_audio_message_public,
     serve_whatsapp_audio,
+    serve_whatsapp_audio_smart,
     serve_local_audio,
     serve_image_message,
     serve_video_message,
     serve_sticker_message,
-    serve_document_message
+    serve_document_message,
+    test_mensagens_public
 )
 
 # Router principal para ViewSets
@@ -55,6 +57,9 @@ urlpatterns = [
     # Endpoint público para teste
     path('test-chats/', test_chats_public, name='test_chats_public'),
     
+    # **NOVO: Endpoint público para testar mensagens**
+    path('test-mensagens/', test_mensagens_public, name='test_mensagens_public'),
+    
     # Endpoints de mídia (públicos)
     path('wapi-media/<str:media_type>/<str:filename>/', serve_wapi_media, name='serve_wapi_media'),
     path('whatsapp-media/<int:cliente_id>/<str:instance_id>/<str:chat_id>/<str:media_type>/<str:filename>/', serve_whatsapp_media, name='serve_whatsapp_media'),
@@ -64,6 +69,7 @@ urlpatterns = [
     path('audio/message/<int:message_id>/', serve_audio_by_message, name='serve_audio_by_message'),
     path('audio/message/<int:message_id>/public/', serve_audio_message_public, name='serve_audio_message_public'),
     path('whatsapp-audio/<int:cliente_id>/<str:instance_id>/<str:chat_id>/<str:message_id>/', serve_whatsapp_audio, name='serve_whatsapp_audio'),
+    path('whatsapp-audio-smart/<int:cliente_id>/<str:instance_id>/<str:chat_id>/<str:message_id>/', serve_whatsapp_audio_smart, name='serve_whatsapp_audio_smart'),
     path('local-audio/<str:filename>/', serve_local_audio, name='serve_local_audio'),
     
     # Endpoints de mídia (com autenticação)
