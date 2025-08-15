@@ -56,15 +56,40 @@ export const useRealtimeUpdates = () => {
   const isPollingRef = useRef(false) // Previne requisições simultâneas
   const hasActiveWebhookRef = useRef(false) // Controle de webhook ativo
 
-  // Função para verificar atualizações - OTIMIZADA
+  // Função para desconectar (sem dependências)
+  const disconnect = useCallback(() => {
+    console.log('🔌 Desconectando do sistema de tempo real...')
+    
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current)
+      pollingRef.current = null
+    }
+    
+    setIsConnected(false)
+    reconnectAttempts.current = 0
+  }, [])
+
+  // Função para verificar atualizações (depende de disconnect)
   const checkForUpdates = useCallback(async () => {
-    if (isPollingRef.current) return // Previne requisições simultâneas
+    if (isPollingRef.current) return
     
     isPollingRef.current = true
     try {
       const response = await apiRequest(`/api/chats/check-updates/?last_check=${lastCheckRef.current}`)
       
       if (!response.ok) {
+        // Se for erro 401, tentar renovar token e reconectar
+        if (response.status === 401) {
+          console.log('🔐 Token expirado, tentando renovar...')
+          // A função apiRequest já deve ter tentado renovar o token
+          // Se ainda falhou, fazer logout e parar polling
+          if (response.status === 401) {
+            console.error('❌ Falha na autenticação após renovação, parando sistema de tempo real')
+            disconnect()
+            return
+          }
+        }
+        
         throw new Error(`HTTP ${response.status}: ${response.statusText}`)
       }
 
@@ -87,41 +112,20 @@ export const useRealtimeUpdates = () => {
             })
           } else if (update.type === 'new_message') {
             // Atualização específica de nova mensagem
-            console.log('📨 Nova mensagem recebida:', update)
-            
-            // Adicionar ao cache
-            if (update.message && update.chat_id) {
-              messageCache.addMessage(update.chat_id, update.message)
-            }
-            
-            const callbacks = callbacksRef.current.get(update.chat_id) || []
-            // Garantir que callbacks seja sempre um array
-            if (Array.isArray(callbacks)) {
-              callbacks.forEach(callback => {
-                try {
-                  callback(update)
-                } catch (error) {
-                  console.error('❌ Erro ao executar callback:', error)
-                }
-              })
-            } else {
-              console.warn('⚠️ Callbacks não é um array:', callbacks)
-            }
-          } else if (update.type === 'chat_updated') {
-            // Atualização de chat (sem nova mensagem)
-            console.log('🔄 Chat atualizado:', update)
-            const callbacks = callbacksRef.current.get(update.chat_id) || []
-            // Garantir que callbacks seja sempre um array
-            if (Array.isArray(callbacks)) {
-              callbacks.forEach(callback => {
-                try {
-                  callback(update)
-                } catch (error) {
-                  console.error('❌ Erro ao executar callback:', error)
-                }
-              })
-            } else {
-              console.warn('⚠️ Callbacks não é um array:', callbacks)
+            const chatId = update.chat_id || update.chat?.id
+            if (chatId && callbacksRef.current.has(chatId)) {
+              const callbacks = callbacksRef.current.get(chatId)
+              if (Array.isArray(callbacks)) {
+                callbacks.forEach(callback => {
+                  try {
+                    callback(update)
+                  } catch (error) {
+                    console.error('❌ Erro ao executar callback:', error)
+                  }
+                })
+              } else {
+                console.warn('⚠️ Callbacks não é um array:', callbacks)
+              }
             }
           }
         })
@@ -136,7 +140,14 @@ export const useRealtimeUpdates = () => {
       console.error('❌ Erro ao verificar atualizações:', error)
       setIsConnected(false)
       
-      // Tentar reconectar com exponential backoff
+      // Se for erro de autenticação, parar polling
+      if (error.message && error.message.includes('401')) {
+        console.error('🔐 Erro de autenticação, parando sistema de tempo real')
+        disconnect()
+        return
+      }
+      
+      // Tentar reconectar com exponential backoff apenas para outros tipos de erro
       if (reconnectAttempts.current < maxReconnectAttempts) {
         reconnectAttempts.current++
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000)
@@ -147,11 +158,35 @@ export const useRealtimeUpdates = () => {
             checkForUpdates()
           }
         }, delay)
+      } else {
+        console.error('❌ Máximo de tentativas de reconexão atingido, parando sistema de tempo real')
+        disconnect()
       }
     } finally {
       isPollingRef.current = false
     }
-  }, [apiRequest])
+  }, [apiRequest, disconnect])
+
+  // Função para conectar (depende de checkForUpdates)
+  const connect = useCallback(() => {
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current)
+    }
+
+    console.log('🔌 Conectando ao sistema de tempo real...')
+    
+    // Verificação inicial
+    checkForUpdates()
+    
+    // Iniciar polling a cada 3 segundos
+    pollingRef.current = setInterval(() => {
+      if (!hasActiveWebhookRef.current) {
+        checkForUpdates()
+      }
+    }, 3000)
+    
+    setIsConnected(true)
+  }, [checkForUpdates])
 
   // Iniciar polling quando o hook é montado - OTIMIZADO
   useEffect(() => {
@@ -175,40 +210,6 @@ export const useRealtimeUpdates = () => {
       clearInterval(interval)
     }
   }, [checkForUpdates])
-
-  // Função para conectar - OTIMIZADA
-  const connect = useCallback(() => {
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current)
-    }
-
-    console.log('🔌 Conectando ao sistema de tempo real...')
-    
-    // Verificação inicial
-    checkForUpdates()
-    
-    // Iniciar polling a cada 3 segundos
-    pollingRef.current = setInterval(() => {
-      if (!hasActiveWebhookRef.current) {
-        checkForUpdates()
-      }
-    }, 3000)
-    
-    setIsConnected(true)
-  }, [checkForUpdates])
-
-  // Função para desconectar
-  const disconnect = useCallback(() => {
-    console.log('🔌 Desconectando do sistema de tempo real...')
-    
-    if (pollingRef.current) {
-      clearInterval(pollingRef.current)
-      pollingRef.current = null
-    }
-    
-    setIsConnected(false)
-    reconnectAttempts.current = 0
-  }, [])
 
   // Função para registrar callbacks específicos de chat
   const registerCallbacks = useCallback((chatId, callbacks) => {

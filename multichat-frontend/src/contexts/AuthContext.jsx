@@ -121,10 +121,13 @@ export const AuthProvider = ({ children }) => {
     try {
       const refresh = localStorage.getItem('refresh_token')
       if (!refresh) {
+        console.warn('⚠️ Refresh token não encontrado, fazendo logout')
         logout()
         return null
       }
 
+      console.log('🔄 Renovando token de acesso...')
+      
       const response = await fetch('http://localhost:8000/api/auth/refresh/', {
         method: 'POST',
         headers: {
@@ -136,14 +139,22 @@ export const AuthProvider = ({ children }) => {
       const data = await response.json()
 
       if (!response.ok) {
+        console.error('❌ Falha ao renovar token:', data)
         logout()
         return null
       }
 
+      console.log('✅ Token renovado com sucesso')
       localStorage.setItem('access_token', data.access)
+      
+      // Se o refresh token foi rotacionado, atualizar também
+      if (data.refresh) {
+        localStorage.setItem('refresh_token', data.refresh)
+      }
+      
       return data.access
     } catch (error) {
-      console.error('Erro ao renovar token:', error)
+      console.error('❌ Erro ao renovar token:', error)
       logout()
       return null
     }
@@ -200,9 +211,11 @@ export const AuthProvider = ({ children }) => {
     }
   }, [])
 
-  // OTIMIZADO: apiRequest com cache e timeout
+  // OTIMIZADO: apiRequest com cache, timeout e retry inteligente
   const apiRequest = useCallback(async (url, options = {}) => {
     let token = localStorage.getItem('access_token')
+    let retryCount = 0
+    const maxRetries = 2
     
     const headers = {
       'Content-Type': 'application/json',
@@ -218,37 +231,50 @@ export const AuthProvider = ({ children }) => {
 
     // Adicionar timeout para evitar travamentos
     const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 10000) // 10 segundos
+    const timeoutId = setTimeout(() => controller.abort(), 15000) // Aumentado para 15 segundos
+
+    const makeRequest = async (useNewToken = false) => {
+      try {
+        let currentToken = token
+        
+        if (useNewToken) {
+          const newToken = await refreshToken()
+          if (newToken) {
+            currentToken = newToken
+            headers.Authorization = `Bearer ${newToken}`
+          } else {
+            throw new Error('Falha ao renovar token')
+          }
+        }
+
+        const response = await fetch(fullUrl, {
+          ...options,
+          headers,
+          signal: controller.signal,
+        })
+
+        // Se o token expirou e ainda não tentamos renovar
+        if (response.status === 401 && !useNewToken && retryCount < maxRetries) {
+          retryCount++
+          console.log(`🔄 Token expirado, tentando renovar (tentativa ${retryCount}/${maxRetries})...`)
+          return await makeRequest(true)
+        }
+
+        return response
+      } catch (error) {
+        if (error.name === 'AbortError') {
+          throw new Error('Timeout na requisição')
+        }
+        throw error
+      }
+    }
 
     try {
-      let response = await fetch(fullUrl, {
-        ...options,
-        headers,
-        signal: controller.signal,
-      })
-
+      const response = await makeRequest()
       clearTimeout(timeoutId)
-
-      // Se o token expirou, tentar renovar
-      if (response.status === 401) {
-        const newToken = await refreshToken()
-        
-        if (newToken) {
-          headers.Authorization = `Bearer ${newToken}`
-          response = await fetch(fullUrl, {
-            ...options,
-            headers,
-            signal: controller.signal,
-          })
-        }
-      }
-
       return response
     } catch (error) {
       clearTimeout(timeoutId)
-      if (error.name === 'AbortError') {
-        throw new Error('Timeout na requisição')
-      }
       throw error
     }
   }, [refreshToken])
@@ -290,6 +316,41 @@ export const AuthProvider = ({ children }) => {
     return isAdmin()
   }, [isAdmin])
 
+  // Função para verificar se o token está próximo de expirar
+  const checkTokenExpiration = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('access_token')
+      if (!token) return false
+      
+      // Decodificar o token JWT para verificar a expiração
+      const payload = JSON.parse(atob(token.split('.')[1]))
+      const expirationTime = payload.exp * 1000 // Converter para milissegundos
+      const currentTime = Date.now()
+      const timeUntilExpiration = expirationTime - currentTime
+      
+      // Se o token expira em menos de 5 minutos, renovar proativamente
+      if (timeUntilExpiration < 5 * 60 * 1000) {
+        console.log('🔄 Token expira em breve, renovando proativamente...')
+        const newToken = await refreshToken()
+        return !!newToken
+      }
+      
+      return true
+    } catch (error) {
+      console.error('❌ Erro ao verificar expiração do token:', error)
+      return false
+    }
+  }, [refreshToken])
+
+  // Verificar token periodicamente
+  useEffect(() => {
+    const checkInterval = setInterval(() => {
+      checkTokenExpiration()
+    }, 5 * 60 * 1000) // Verificar a cada 5 minutos
+    
+    return () => clearInterval(checkInterval)
+  }, [checkTokenExpiration])
+
   const value = {
     user,
     isAuthenticated,
@@ -297,6 +358,7 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     refreshToken,
+    checkTokenExpiration,
     updateProfile,
     changePassword,
     apiRequest,

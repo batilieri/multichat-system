@@ -774,14 +774,39 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
       const mensagemParaEnviar = message;
       setMessage(''); // Limpa imediatamente
       setReplyTo(null);
-      // Busca instância e token do localStorage (primeira encontrada)
-      const wapiInstances = JSON.parse(localStorage.getItem('wapi_instances') || '{}');
-      const instanciaId = Object.keys(wapiInstances)[0];
-      const token = instanciaId ? wapiInstances[instanciaId].token : null;
+      
+      // Buscar instância e token baseado no cliente do chat
+      let instanciaId = null;
+      let token = null;
+      
+      // Primeiro, tentar encontrar a instância baseada no cliente do chat
+      if (chat && chat.cliente_id && internalInstances.length > 0) {
+        const instanciaCliente = internalInstances.find(inst => 
+          inst.cliente_id === chat.cliente_id || 
+          inst.clienteId === chat.cliente_id ||
+          String(inst.cliente_id) === String(chat.cliente_id)
+        );
+        
+        if (instanciaCliente) {
+          instanciaId = instanciaCliente.instance_id;
+          // Buscar token no localStorage para esta instância específica
+          const wapiInstances = JSON.parse(localStorage.getItem('wapi_instances') || '{}');
+          token = wapiInstances[instanciaId]?.token;
+        }
+      }
+      
+      // Se não encontrou por cliente, tentar buscar no localStorage (fallback)
       if (!instanciaId || !token) {
-        alert('Nenhuma instância/token encontrada no navegador. Faça login ou conecte uma instância.');
+        const wapiInstances = JSON.parse(localStorage.getItem('wapi_instances') || '{}');
+        instanciaId = Object.keys(wapiInstances)[0];
+        token = instanciaId ? wapiInstances[instanciaId].token : null;
+      }
+      
+      if (!instanciaId || !token) {
+        alert('Nenhuma instância/token encontrada para este cliente. Faça login ou conecte uma instância.');
         return;
       }
+      
       try {
         const response = await enviarMensagemWapi({
           chat_id: chat.chat_id,
@@ -894,16 +919,38 @@ const ChatView = ({ chat, instances = [], clients = [] }) => {
     setIsProcessingImage(true)
 
     try {
-      // Busca instância e token do localStorage (mesmo método usado em handleSendMessage)
-      const wapiInstances = JSON.parse(localStorage.getItem('wapi_instances') || '{}')
-      const instanciaId = Object.keys(wapiInstances)[0]
-      const token = instanciaId ? wapiInstances[instanciaId].token : null
+      // Buscar instância e token baseado no cliente do chat
+      let instanciaId = null;
+      let token = null;
+      
+      // Primeiro, tentar encontrar a instância baseada no cliente do chat
+      if (chat && chat.cliente_id && internalInstances.length > 0) {
+        const instanciaCliente = internalInstances.find(inst => 
+          inst.cliente_id === chat.cliente_id || 
+          inst.clienteId === chat.cliente_id ||
+          String(inst.cliente_id) === String(chat.cliente_id)
+        );
+        
+        if (instanciaCliente) {
+          instanciaId = instanciaCliente.instance_id;
+          // Buscar token no localStorage para esta instância específica
+          const wapiInstances = JSON.parse(localStorage.getItem('wapi_instances') || '{}');
+          token = wapiInstances[instanciaId]?.token;
+        }
+      }
+      
+      // Se não encontrou por cliente, tentar buscar no localStorage (fallback)
+      if (!instanciaId || !token) {
+        const wapiInstances = JSON.parse(localStorage.getItem('wapi_instances') || '{}');
+        instanciaId = Object.keys(wapiInstances)[0];
+        token = instanciaId ? wapiInstances[instanciaId].token : null;
+      }
 
       if (!instanciaId || !token) {
         console.error('❌ Nenhuma instância/token encontrada')
         toast({
           title: "❌ Erro de autenticação",
-          description: "Nenhuma instância/token encontrada no navegador. Faça login ou conecte uma instância.",
+          description: "Nenhuma instância/token encontrada para este cliente. Faça login ou conecte uma instância.",
           duration: 4000,
         })
         return

@@ -1369,8 +1369,8 @@ class MensagemViewSet(viewsets.ModelViewSet):
             wapi_result = None
             try:
                 # Buscar instância e token
-                from core.models import WhatsappInstance
-                instance = WhatsappInstance.objects.filter(cliente=mensagem.chat.cliente).first()
+                from core.utils import get_whatsapp_instance_by_message
+                instance = get_whatsapp_instance_by_message(mensagem, prefer_connected=True)
                 
                 if instance and instance.token and mensagem.message_id:
                     # Importar e usar a classe de reação
@@ -1450,8 +1450,8 @@ class MensagemViewSet(viewsets.ModelViewSet):
             wapi_result = None
             try:
                 # Buscar instância e token
-                from core.models import WhatsappInstance
-                instance = WhatsappInstance.objects.filter(cliente=mensagem.chat.cliente).first()
+                from core.utils import get_whatsapp_instance_by_message
+                instance = get_whatsapp_instance_by_message(mensagem, prefer_connected=True)
                 
                 if instance and instance.token and mensagem.message_id:
                     # Importar e usar a classe de reação
@@ -1522,8 +1522,8 @@ class MensagemViewSet(viewsets.ModelViewSet):
                 )
             
             # Buscar instância e token
-            from core.models import WhatsappInstance
-            instance = WhatsappInstance.objects.filter(cliente=chat.cliente).first()
+            from core.utils import get_whatsapp_instance_by_chat
+            instance = get_whatsapp_instance_by_chat(chat, prefer_connected=True)
             
             if not instance or not instance.token:
                 return Response(
@@ -1633,8 +1633,8 @@ class MensagemViewSet(viewsets.ModelViewSet):
                 )
             
             # Buscar instância e token
-            from core.models import WhatsappInstance
-            instance = WhatsappInstance.objects.filter(cliente=chat.cliente).first()
+            from core.utils import get_whatsapp_instance_by_chat
+            instance = get_whatsapp_instance_by_chat(chat, prefer_connected=True)
             
             if not instance or not instance.token:
                 return Response(

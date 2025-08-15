@@ -13,8 +13,9 @@ class ClienteSerializer(serializers.ModelSerializer):
 
     def get_whatsapp_status(self, obj):
         # Importação lazy para evitar problemas de importação circular e linter
-        from core.models import WhatsappInstance
-        instance = WhatsappInstance.objects.filter(cliente=obj).first()
+        from core.utils import get_client_whatsapp_instance
+        instance = get_client_whatsapp_instance(obj, prefer_connected=True)
+        
         if instance:
             return instance.status or "desconectado"
         return "desconectado"
