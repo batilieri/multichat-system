@@ -28,7 +28,8 @@ from .views import (
     serve_video_message,
     serve_sticker_message,
     serve_document_message,
-    test_mensagens_public
+    test_mensagens_public,
+    serve_media_by_message_id
 )
 
 # Router principal para ViewSets
@@ -59,6 +60,9 @@ urlpatterns = [
     
     # **NOVO: Endpoint público para testar mensagens**
     path('test-mensagens/', test_mensagens_public, name='test_mensagens_public'),
+    
+    # **NOVO: Endpoint inteligente para servir mídia por message_id**
+    path('media/message/<int:message_id>/', serve_media_by_message_id, name='serve_media_by_message_id'),
     
     # Endpoints de mídia (públicos)
     path('wapi-media/<str:media_type>/<str:filename>/', serve_wapi_media, name='serve_wapi_media'),

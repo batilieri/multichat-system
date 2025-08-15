@@ -658,10 +658,8 @@ const Message = ({ message, profilePicture, onReply, hideMenu, onForward, onShow
           )}
           {/* Conteúdo principal */}
           <div className="message-content">
-            {/* Mostrar texto original da mensagem */}
-            {(message.tipo === 'texto' || message.type === 'text' || message.type === 'texto')
-              ? renderTextWithEmojis(message.content || message.conteudo)
-              : message.content}
+            {/* Usar a função de renderização de conteúdo de mídia */}
+            {renderMessageContent(message)}
             
             {/* Indicador de exclusão se a mensagem foi excluída */}
             {isDeleted && (
@@ -978,8 +976,13 @@ const AudioPlayer = ({ message }) => {
     let url = null
     
     try {
-      // Prioridade 1: Nova estrutura de armazenamento por chat_id
-      if (message.chat_id) {
+      // **PRIORIDADE 1: Endpoint inteligente universal (NOVO)**
+      if (message.id) {
+        url = `http://localhost:8000/api/media/message/${message.id}/`
+        console.log('🎵 URL endpoint inteligente universal:', url);
+      }
+      // Prioridade 2: Nova estrutura de armazenamento por chat_id (fallback)
+      else if (message.chat_id) {
         // Usar endpoint inteligente que detecta o arquivo automaticamente
         const chatId = message.chat_id
         const clienteId = message.cliente_id || 2 // Cliente Elizeu (padrão)
@@ -991,7 +994,7 @@ const AudioPlayer = ({ message }) => {
         url = `http://localhost:8000/api/whatsapp-audio-smart/${clienteId}/${instanceId}/${chatId}/${messageId}/`
         console.log('🎵 URL inteligente por chat_id e message_id:', url);
       }
-      // Prioridade 2: URL da pasta /wapi/midias/ (sistema integrado)
+      // Prioridade 3: URL da pasta /wapi/midias/ (sistema integrado)
       else if (message.content || message.conteudo) {
         try {
           const content = message.content || message.conteudo
@@ -1006,23 +1009,23 @@ const AudioPlayer = ({ message }) => {
           if (jsonContent.audioMessage) {
             const audioMessage = jsonContent.audioMessage
             
-            // Prioridade 2a: URL da pasta /wapi/midias/
+            // Prioridade 3a: URL da pasta /wapi/midias/
             if (audioMessage.url && audioMessage.url.startsWith('/wapi/midias/')) {
               const filename = audioMessage.url.split('/').pop()
               url = `http://localhost:8000/api/wapi-media/audios/${filename}`
               console.log('🎵 URL /wapi/midias/:', url);
             }
-            // Prioridade 2b: Nome do arquivo na pasta /wapi/midias/
+            // Prioridade 3b: Nome do arquivo na pasta /wapi/midias/
             else if (audioMessage.fileName) {
               url = `http://localhost:8000/api/wapi-media/audios/${audioMessage.fileName}`
               console.log('🎵 URL por fileName:', url);
             }
-            // Prioridade 2c: URL direta do JSON
+            // Prioridade 3c: URL direta do JSON
             else if (audioMessage.url) {
               url = audioMessage.url
               console.log('🎵 URL direta do JSON:', url);
             }
-            // Prioridade 2d: localPath (arquivo local)
+            // Prioridade 3d: localPath (arquivo local)
             else if (audioMessage.localPath) {
               const filename = audioMessage.localPath.split('/').pop()
               url = `http://localhost:8000/api/local-audio/${encodeURIComponent(filename)}/`
@@ -1034,31 +1037,31 @@ const AudioPlayer = ({ message }) => {
         }
       }
       
-      // Prioridade 3: URL processada do backend (/media/)
+      // Prioridade 4: URL processada do backend (/media/)
       if (!url && message.mediaUrl && message.mediaUrl.startsWith('/media/')) {
         url = `http://localhost:8000/api${message.mediaUrl}`
         console.log('🎵 URL processada do backend:', url);
       }
       
-      // Prioridade 4: URL processada como caminho relativo
+      // Prioridade 5: URL processada como caminho relativo
       if (!url && message.mediaUrl && message.mediaUrl.startsWith('audios/')) {
         url = `http://localhost:8000/api/media/${message.mediaUrl}`
         console.log('🎵 URL relativa:', url);
       }
       
-      // Prioridade 5: URL direta do WhatsApp (ainda criptografada)
+      // Prioridade 6: URL direta do WhatsApp (ainda criptografada)
       if (!url && message.mediaUrl && message.mediaUrl.startsWith('http')) {
         url = message.mediaUrl
         console.log('🎵 URL direta do WhatsApp:', url);
       }
       
-      // **CORREÇÃO: Fallback melhorado usando endpoint público da API**
+      // Prioridade 7: Fallback usando endpoint público da API
       if (!url && message.id) {
         url = `http://localhost:8000/api/audio/message/${message.id}/public/`
         console.log('🎵 URL fallback público por ID:', url);
       }
       
-      // **CORREÇÃO: Fallback adicional para mensagens com message_id**
+      // Prioridade 8: Fallback adicional para mensagens com message_id
       if (!url && message.message_id) {
         url = `http://localhost:8000/api/audio/message/${message.id}/public/`
         console.log('🎵 URL fallback por message_id:', url);
@@ -1233,40 +1236,17 @@ const AudioPlayer = ({ message }) => {
 
 // Função utilitária para renderizar texto com emojis usando o componente Emoji
 function renderTextWithEmojis(text) {
-  // Simplificar para evitar problemas com emojis
-  if (!text) return '';
-  text = typeof text === 'string' ? text : String(text);
+  // Versão simplificada para debugging
+  if (!text) return 'Texto vazio';
   
-  // Se o texto contém apenas caracteres simples, retornar diretamente
-  if (/^[a-zA-Z0-9\s.,!?;:()\-_@#$%&*+=<>[\]{}|\\/"'`~]+$/.test(text)) {
-    return text;
-  }
+  // Converter para string se necessário
+  const textString = typeof text === 'string' ? text : String(text);
   
-  // Para textos com emojis, usar regex mais simples
-  try {
-    const regex = EmojiRegex();
-    const parts = [];
-    let lastIndex = 0;
-    
-    for (const match of text.matchAll(regex)) {
-      const emoji = match[0];
-      const index = match.index;
-      if (index > lastIndex) {
-        parts.push(text.slice(lastIndex, index));
-      }
-      parts.push(<Emoji key={index}>{emoji}</Emoji>);
-      lastIndex = index + emoji.length;
-    }
-    
-    if (lastIndex < text.length) {
-      parts.push(text.slice(lastIndex));
-    }
-    
-    return parts;
-  } catch (error) {
-    console.warn('Erro ao processar emojis:', error);
-    return text; // Fallback para texto simples
-  }
+  // Log para debug
+  console.log('🔤 renderTextWithEmojis recebeu:', textString.substring(0, 50));
+  
+  // Retornar texto simples por enquanto para evitar problemas
+  return textString;
 }
 
 function renderMessageContent(message) {
@@ -1318,17 +1298,30 @@ function renderMessageContent(message) {
   console.log('🎯 Tipo do tipo:', typeof tipo);
   console.log('🎯 Tipo do MessageType.AUDIO:', typeof MessageType.AUDIO);
 
-  // Se for mensagem de texto, renderizar normalmente
-  if (tipo === MessageType.TEXT || tipo === 'texto' || tipo === 'text') {
-    return (
-      <motion.p 
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="whitespace-pre-wrap leading-relaxed pr-8"
-      >
-          {renderTextWithEmojis(message.conteudo)}
-      </motion.p>
-    )
+  // **PRIORIDADE 1: Se for mensagem de texto, renderizar normalmente**
+  if (tipo === MessageType.TEXT || tipo === 'texto' || tipo === 'text' || !tipo || tipo === null || tipo === undefined) {
+    console.log('📝 Renderizando mensagem de texto:', {
+      tipo,
+      conteudo: message.conteudo,
+      content: message.content
+    });
+    
+    const textContent = message.conteudo || message.content || '';
+    
+    // Se não tem conteúdo, pode ser que seja mídia disfarçada de texto
+    if (!textContent) {
+      console.log('⚠️ Mensagem de texto sem conteúdo, pulando para próximas verificações');
+    } else {
+      return (
+        <motion.p 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="whitespace-pre-wrap leading-relaxed pr-8"
+        >
+          {renderTextWithEmojis(textContent)}
+        </motion.p>
+      )
+    }
   }
 
   // **CORREÇÃO: Para mensagens de áudio, usar o AudioPlayer principal primeiro**
@@ -1387,14 +1380,52 @@ function renderMessageContent(message) {
     return <AudioPlayer message={message} />;
   }
 
-  // Fallback final: exibir conteúdo como texto
+  // **CORREÇÃO FINAL: Priorizar texto normal, depois mídia**
+  console.log('🔄 Fallback final: analisando conteúdo para:', {
+    tipo,
+    conteudo: message.conteudo?.substring(0, 100),
+    content: message.content?.substring(0, 100)
+  });
+  
+  // Se chegou aqui e tem conteúdo
+  if (message.conteudo || message.content) {
+    const content = message.conteudo || message.content;
+    
+    // Se o conteúdo contém indicadores de mídia, usar MediaProcessor
+    if (typeof content === 'string' && (
+      content.includes('[Mídia]') ||
+      content.includes('[Audio]') ||
+      content.includes('[Áudio]') ||
+      content.includes('audioMessage') ||
+      content.includes('imageMessage') ||
+      content.includes('videoMessage') ||
+      content.includes('documentMessage')
+    )) {
+      console.log('🎵 Usando MediaProcessor no fallback final');
+      return <MediaProcessor message={message} />;
+    }
+    
+    // **PRIORIDADE ALTA: Fallback para texto normal**
+    console.log('📝 Usando fallback de texto para conteúdo:', content.substring(0, 50));
+    return (
+      <motion.p 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="whitespace-pre-wrap leading-relaxed pr-8"
+      >
+        {renderTextWithEmojis(content)}
+      </motion.p>
+    )
+  }
+  
+  // Último fallback: mensagem vazia
   return (
     <motion.p 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="whitespace-pre-wrap leading-relaxed pr-8"
+      className="whitespace-pre-wrap leading-relaxed pr-8 text-muted-foreground italic"
     >
-      {renderTextWithEmojis(message.conteudo || message.content || '[Mídia]')}
+      [Conteúdo não disponível]
     </motion.p>
   )
 }

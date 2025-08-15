@@ -3287,6 +3287,141 @@ def serve_audio_by_hash_mapping(request, message_id):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
+def serve_media_by_message_id(request, message_id):
+    """
+    Endpoint inteligente para servir qualquer mídia (audio, image, video, document) pelo message_id
+    Encontra automaticamente o arquivo baseado na estrutura media_storage
+    """
+    try:
+        from core.models import Mensagem
+        from pathlib import Path
+        import os
+        import json
+        
+        logger.info(f"🔍 Buscando mídia para message_id: {message_id}")
+        
+        # Buscar a mensagem no banco
+        try:
+            mensagem = Mensagem.objects.get(id=message_id)
+            logger.info(f"✅ Mensagem encontrada: ID={mensagem.id}, Message_ID={mensagem.message_id}, Tipo={mensagem.tipo}")
+        except Mensagem.DoesNotExist:
+            logger.warning(f"❌ Mensagem não encontrada: {message_id}")
+            return HttpResponse("Mensagem não encontrada", status=404)
+        
+        # Extrair o hash do message_id (primeiros 8 caracteres)
+        hash_id = None
+        if mensagem.message_id and len(mensagem.message_id) >= 8:
+            hash_id = mensagem.message_id[:8]
+            logger.info(f"🔑 Hash extraído: {hash_id}")
+        else:
+            logger.warning(f"❌ Message_ID inválido: {mensagem.message_id}")
+            return HttpResponse("Message_ID inválido", status=400)
+        
+        # Obter informações do cliente e instância
+        cliente = mensagem.chat.cliente
+        cliente_nome = cliente.nome.replace(' ', '_')
+        chat_id = mensagem.chat.chat_id
+        
+        # Buscar instância do cliente
+        from core.utils import get_client_whatsapp_instance
+        instance = get_client_whatsapp_instance(cliente, prefer_connected=False)
+        if not instance:
+            logger.warning(f"❌ Instância não encontrada para cliente: {cliente.nome}")
+            return HttpResponse("Instância não encontrada", status=404)
+            
+        instance_id = instance.instance_id
+        logger.info(f"📱 Cliente: {cliente_nome}, Instance: {instance_id}, Chat: {chat_id}")
+        
+        # Construir caminho base da mídia
+        base_path = Path(settings.BASE_DIR) / 'media_storage' / cliente_nome / f'instance_{instance_id}' / 'chats' / chat_id
+        logger.info(f"📁 Caminho base: {base_path}")
+        
+        # Definir tipos de mídia e extensões possíveis
+        media_types = {
+            'audio': ['ogg', 'mp3', 'wav', 'm4a', 'aac'],
+            'image': ['jpg', 'jpeg', 'png', 'gif', 'webp'],
+            'video': ['mp4', 'webm', 'avi', 'mov'],
+            'document': ['pdf', 'doc', 'docx', 'txt', 'xlsx', 'zip']
+        }
+        
+        # Tentar encontrar o arquivo
+        found_file = None
+        media_type_found = None
+        
+        for media_type, extensions in media_types.items():
+            media_dir = base_path / media_type
+            if media_dir.exists():
+                logger.info(f"🔍 Verificando diretório: {media_dir}")
+                
+                # Buscar arquivos que comecem com msg_{hash_id}
+                for file_path in media_dir.glob(f'msg_{hash_id}*'):
+                    if file_path.is_file():
+                        logger.info(f"✅ Arquivo encontrado: {file_path}")
+                        found_file = file_path
+                        media_type_found = media_type
+                        break
+                
+                if found_file:
+                    break
+        
+        if not found_file:
+            logger.warning(f"❌ Arquivo não encontrado para hash: {hash_id}")
+            return HttpResponse("Arquivo de mídia não encontrado", status=404)
+        
+        logger.info(f"🎯 Servindo arquivo: {found_file} (Tipo: {media_type_found})")
+        
+        # Determinar o content_type baseado na extensão
+        content_types = {
+            'ogg': 'audio/ogg',
+            'mp3': 'audio/mpeg',
+            'wav': 'audio/wav',
+            'm4a': 'audio/mp4',
+            'aac': 'audio/aac',
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'webp': 'image/webp',
+            'mp4': 'video/mp4',
+            'webm': 'video/webm',
+            'avi': 'video/x-msvideo',
+            'mov': 'video/quicktime',
+            'pdf': 'application/pdf',
+            'doc': 'application/msword',
+            'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'txt': 'text/plain',
+            'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'zip': 'application/zip'
+        }
+        
+        file_extension = found_file.suffix.lower().lstrip('.')
+        content_type = content_types.get(file_extension, 'application/octet-stream')
+        
+        # Servir o arquivo
+        try:
+            response = FileResponse(
+                open(found_file, 'rb'),
+                content_type=content_type,
+                as_attachment=False
+            )
+            response['Cache-Control'] = 'public, max-age=3600'
+            response['Access-Control-Allow-Origin'] = '*'
+            
+            logger.info(f"✅ Mídia servida com sucesso: {found_file}")
+            return response
+            
+        except Exception as file_error:
+            logger.error(f"❌ Erro ao abrir arquivo: {file_error}")
+            return HttpResponse("Erro ao abrir arquivo", status=500)
+        
+    except Exception as e:
+        logger.error(f"❌ Erro geral ao servir mídia: {e}")
+        import traceback
+        traceback.print_exc()
+        return HttpResponse("Erro interno do servidor", status=500)
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
 def serve_whatsapp_audio_smart(request, cliente_id, instance_id, chat_id, message_id):
     """
     Endpoint inteligente para servir áudio da estrutura media_storage do WhatsApp

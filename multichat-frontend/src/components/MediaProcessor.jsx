@@ -36,6 +36,8 @@ export const MediaProcessor = ({ message }) => {
   // Processar dados da mensagem para extrair informações de mídia
   useEffect(() => {
     console.log('🎵 DEBUG MediaProcessor - Dados da mensagem:', message)
+    console.log('🎵 DEBUG MediaProcessor - ID:', message.id)
+    console.log('🎵 DEBUG MediaProcessor - Message_ID:', message.message_id)
     console.log('🎵 DEBUG MediaProcessor - Tipo:', message.tipo || message.type)
     console.log('🎵 DEBUG MediaProcessor - Content/Conteudo:', message.content || message.conteudo)
     
@@ -323,7 +325,17 @@ const processAudioMessage = (audioMessage, message, setMediaUrl, setIsLoading, s
     return
   }
   
-  // ESTRATÉGIA 1: URL da nova estrutura de chat_id (backend modificado)
+  // ESTRATÉGIA 1: Endpoint inteligente baseado no message_id (PRIORITÁRIO)
+  if (message.id) {
+    const url = `http://localhost:8000/api/media/message/${message.id}/`
+    audioUrlStrategies.push({
+      priority: 1,
+      url: url,
+      description: 'Endpoint inteligente por message_id'
+    })
+  }
+  
+  // ESTRATÉGIA 2: URL da nova estrutura de chat_id (backend modificado)
   if (message.media_url) {
     if (message.media_url.startsWith('/media/whatsapp_media/') || 
         message.media_url.startsWith('/api/whatsapp-media/')) {
@@ -331,64 +343,64 @@ const processAudioMessage = (audioMessage, message, setMediaUrl, setIsLoading, s
         ? `http://localhost:8000${message.media_url}` 
         : `http://localhost:8000/api${message.media_url}`
       audioUrlStrategies.push({
-        priority: 1,
+        priority: 2,
         url: url,
         description: 'Nova estrutura de chat_id'
       })
     }
   }
   
-  // ESTRATÉGIA 2: Conteúdo já é a URL local (serializer modificado)
+  // ESTRATÉGIA 3: Conteúdo já é a URL local (serializer modificado)
   if (message.conteudo && typeof message.conteudo === 'string') {
     if (message.conteudo.startsWith('/media/') || message.conteudo.startsWith('/api/')) {
       const url = message.conteudo.startsWith('/api/') 
         ? `http://localhost:8000${message.conteudo}` 
         : `http://localhost:8000/api${message.conteudo}`
       audioUrlStrategies.push({
-        priority: 2,
+        priority: 3,
         url: url,
         description: 'URL do conteúdo'
       })
     }
   }
   
-  // ESTRATÉGIA 3: URL da pasta /wapi/midias/
+  // ESTRATÉGIA 4: URL da pasta /wapi/midias/
   if (audioMessage.url && audioMessage.url.startsWith('/wapi/midias/')) {
     const filename = audioMessage.url.split('/').pop()
     const url = `http://localhost:8000/api/wapi-media/audios/${filename}`
     audioUrlStrategies.push({
-      priority: 3,
+      priority: 4,
       url: url,
       description: 'Pasta /wapi/midias/'
     })
   }
   
-  // ESTRATÉGIA 4: Nome do arquivo na pasta /wapi/midias/
+  // ESTRATÉGIA 5: Nome do arquivo na pasta /wapi/midias/
   if (audioMessage.fileName) {
     const url = `http://localhost:8000/api/wapi-media/audios/${audioMessage.fileName}`
     audioUrlStrategies.push({
-      priority: 4,
+      priority: 5,
       url: url,
       description: 'fileName da pasta /wapi/midias/'
     })
   }
   
-  // ESTRATÉGIA 5: URL direta do JSON (WhatsApp)
+  // ESTRATÉGIA 6: URL direta do JSON (WhatsApp)
   if (audioMessage.url && audioMessage.url.startsWith('http')) {
     audioUrlStrategies.push({
-      priority: 5,
+      priority: 6,
       url: audioMessage.url,
       description: 'URL direta do WhatsApp'
     })
   }
   
-  // ESTRATÉGIA 6: Endpoint público por ID da mensagem
+  // ESTRATÉGIA 7: Endpoint público por ID da mensagem (fallback)
   if (message.id) {
     const url = `http://localhost:8000/api/audio/message/${message.id}/public/`
     audioUrlStrategies.push({
-      priority: 6,
+      priority: 7,
       url: url,
-      description: 'Endpoint público por ID'
+      description: 'Endpoint público por ID (fallback)'
     })
   }
   
@@ -457,12 +469,17 @@ const processImageMessage = (imageMessage, message, setMediaUrl, setIsLoading, s
   
   let url = null
   
-  // Prioridade 1: URL da nova estrutura de chat_id (backend modificado)
-  if (message.media_url && (message.media_url.startsWith('/media/whatsapp_media/') || message.media_url.startsWith('/api/whatsapp-media/'))) {
+  // Prioridade 1: Endpoint inteligente baseado no message_id (PRIORITÁRIO)
+  if (message.id) {
+    url = `http://localhost:8000/api/media/message/${message.id}/`
+    console.log('🖼️ URL endpoint inteligente:', url)
+  }
+  // Prioridade 2: URL da nova estrutura de chat_id (backend modificado)
+  else if (message.media_url && (message.media_url.startsWith('/media/whatsapp_media/') || message.media_url.startsWith('/api/whatsapp-media/'))) {
     url = message.media_url.startsWith('/api/') ? `http://localhost:8000${message.media_url}` : `http://localhost:8000/api${message.media_url}`
     console.log('🖼️ URL da nova estrutura:', url)
   }
-  // Prioridade 2: Conteúdo já é a URL local (serializer modificado)
+  // Prioridade 3: Conteúdo já é a URL local (serializer modificado)
   else if ((message.conteudo || message.content) && 
            (typeof (message.conteudo || message.content) === 'string') &&
            ((message.conteudo || message.content).startsWith('/media/whatsapp_media/') || 
@@ -471,7 +488,7 @@ const processImageMessage = (imageMessage, message, setMediaUrl, setIsLoading, s
     url = contentUrl.startsWith('/api/') ? `http://localhost:8000${contentUrl}` : `http://localhost:8000/api${contentUrl}`
     console.log('🖼️ URL do conteúdo processado:', url)
   }
-  // Prioridade 3: URL da pasta /wapi/midias/
+  // Prioridade 4: URL da pasta /wapi/midias/
   else if (imageMessage.url && imageMessage.url.startsWith('/wapi/midias/')) {
     const filename = imageMessage.url.split('/').pop()
     url = `http://localhost:8000/api/wapi-media/imagens/${filename}`
@@ -511,16 +528,20 @@ const processVideoMessage = (videoMessage, message, setMediaUrl, setIsLoading, s
   
   let url = null
   
-  // Prioridade 1: URL da pasta /wapi/midias/
-  if (videoMessage.url && videoMessage.url.startsWith('/wapi/midias/')) {
+  // Prioridade 1: Endpoint inteligente baseado no message_id (PRIORITÁRIO)
+  if (message.id) {
+    url = `http://localhost:8000/api/media/message/${message.id}/`
+  }
+  // Prioridade 2: URL da pasta /wapi/midias/
+  else if (videoMessage.url && videoMessage.url.startsWith('/wapi/midias/')) {
     const filename = videoMessage.url.split('/').pop()
     url = `http://localhost:8000/api/wapi-media/videos/${filename}`
   }
-  // Prioridade 2: URL direta do JSON
+  // Prioridade 3: URL direta do JSON
   else if (videoMessage.url) {
     url = videoMessage.url
   }
-  // Prioridade 3: Tentar construir URL baseada no message_id
+  // Prioridade 4: Tentar construir URL baseada no message_id
   else if (message.id) {
     const extensions = ['mp4', 'webm', 'avi']
     for (const ext of extensions) {
@@ -587,16 +608,20 @@ const processDocumentMessage = (documentMessage, message, setMediaUrl, setIsLoad
   
   let url = null
   
-  // Prioridade 1: URL da pasta /wapi/midias/
-  if (documentMessage.url && documentMessage.url.startsWith('/wapi/midias/')) {
+  // Prioridade 1: Endpoint inteligente baseado no message_id (PRIORITÁRIO)
+  if (message.id) {
+    url = `http://localhost:8000/api/media/message/${message.id}/`
+  }
+  // Prioridade 2: URL da pasta /wapi/midias/
+  else if (documentMessage.url && documentMessage.url.startsWith('/wapi/midias/')) {
     const filename = documentMessage.url.split('/').pop()
     url = `http://localhost:8000/api/wapi-media/documentos/${filename}`
   }
-  // Prioridade 2: URL direta do JSON
+  // Prioridade 3: URL direta do JSON
   else if (documentMessage.url) {
     url = documentMessage.url
   }
-  // Prioridade 3: Tentar construir URL baseada no message_id
+  // Prioridade 4: Tentar construir URL baseada no message_id
   else if (message.id) {
     const extensions = ['pdf', 'doc', 'docx', 'txt']
     for (const ext of extensions) {
